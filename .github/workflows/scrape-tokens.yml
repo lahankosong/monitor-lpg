@@ -40,23 +40,13 @@ jobs:
           playwright install chromium
           playwright install-deps chromium
 
-      - name: Create accounts file from secret
-        env:
-          ACCOUNTS_DATA: ${{ secrets.ACCOUNTS_JSON }}
-        run: |
-          printf '%s' "$ACCOUNTS_DATA" > scripts/accounts_secret.json
-
       - name: Run scraper
         env:
           LARAVEL_API_URL: ${{ secrets.LARAVEL_API_URL }}
           LARAVEL_API_KEY: ${{ secrets.LARAVEL_API_KEY }}
+          ACCOUNTS_JSON: ${{ secrets.ACCOUNTS_JSON }}
           DATE_FROM: ${{ github.event.inputs.date_from }}
           DATE_TO: ${{ github.event.inputs.date_to }}
         run: |
           cd scripts
           python scrape_for_actions.py
-
-      - name: Cleanup
-        if: always()
-        run: |
-          rm -f scripts/accounts_secret.json

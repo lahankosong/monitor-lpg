@@ -193,18 +193,27 @@ async def main():
     log(f"API URL: {api_url}")
     log(f"Date range: {date_from} - {date_to}")
 
-    # Baca accounts dari file (dari GitHub Secret)
-    accounts_file = Path(__file__).parent / "accounts_secret.json"
-    if not accounts_file.exists():
-        # Fallback ke accounts.json untuk testing lokal
+    # Baca accounts dari environment variable atau file
+    accounts_json_env = os.environ.get("ACCOUNTS_JSON", "")
+
+    if accounts_json_env:
+        # Dari GitHub Actions environment variable
+        log("Loading accounts from ACCOUNTS_JSON environment variable...")
+        try:
+            accounts = json.loads(accounts_json_env)
+        except json.JSONDecodeError as e:
+            log(f"ERROR: Gagal parse ACCOUNTS_JSON: {e}")
+            log(f"Content preview: {accounts_json_env[:100]}...")
+            sys.exit(1)
+    else:
+        # Fallback ke file untuk testing lokal
         accounts_file = Path(__file__).parent / "accounts.json"
-
-    if not accounts_file.exists():
-        log("ERROR: File accounts tidak ditemukan!")
-        sys.exit(1)
-
-    with open(accounts_file, "r") as f:
-        accounts = json.load(f)
+        if not accounts_file.exists():
+            log("ERROR: ACCOUNTS_JSON env tidak ada dan file accounts.json tidak ditemukan!")
+            sys.exit(1)
+        log(f"Loading accounts from file: {accounts_file}")
+        with open(accounts_file, "r", encoding="utf-8") as f:
+            accounts = json.load(f)
 
     if not accounts:
         log("ERROR: Tidak ada akun dalam file!")
