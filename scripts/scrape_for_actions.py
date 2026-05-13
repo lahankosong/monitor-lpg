@@ -180,6 +180,20 @@ async def main():
     log("MyPertamina Batch Scraper untuk GitHub Actions")
     log("=" * 50)
 
+    # Debug: tampilkan environment variables yang ada (tanpa nilai sensitif)
+    log("DEBUG: Checking environment variables...")
+    log(f"  LARAVEL_API_URL exists: {'LARAVEL_API_URL' in os.environ}")
+    log(f"  LARAVEL_API_KEY exists: {'LARAVEL_API_KEY' in os.environ}")
+    log(f"  ACCOUNTS_JSON exists: {'ACCOUNTS_JSON' in os.environ}")
+
+    accounts_json_env = os.environ.get("ACCOUNTS_JSON", "")
+    if accounts_json_env:
+        log(f"  ACCOUNTS_JSON length: {len(accounts_json_env)} chars")
+        log(f"  ACCOUNTS_JSON first 50 chars: {repr(accounts_json_env[:50])}")
+        log(f"  ACCOUNTS_JSON last 50 chars: {repr(accounts_json_env[-50:])}")
+    else:
+        log("  ACCOUNTS_JSON is empty or not set")
+
     # Baca konfigurasi dari environment
     api_url = os.environ.get("LARAVEL_API_URL", "").rstrip("/")
     api_key = os.environ.get("LARAVEL_API_KEY", "")
@@ -194,8 +208,6 @@ async def main():
     log(f"Date range: {date_from} - {date_to}")
 
     # Baca accounts dari environment variable atau file
-    accounts_json_env = os.environ.get("ACCOUNTS_JSON", "")
-
     if accounts_json_env:
         # Dari GitHub Actions environment variable
         log("Loading accounts from ACCOUNTS_JSON environment variable...")
@@ -203,7 +215,11 @@ async def main():
             accounts = json.loads(accounts_json_env)
         except json.JSONDecodeError as e:
             log(f"ERROR: Gagal parse ACCOUNTS_JSON: {e}")
-            log(f"Content preview: {accounts_json_env[:100]}...")
+            log(f"Content preview (repr): {repr(accounts_json_env[:200])}")
+            # Coba cari karakter bermasalah
+            for i, char in enumerate(accounts_json_env[:1000]):
+                if ord(char) < 32 and char not in '\n\r\t':
+                    log(f"  Invalid char at position {i}: ord={ord(char)}")
             sys.exit(1)
     else:
         # Fallback ke file untuk testing lokal
