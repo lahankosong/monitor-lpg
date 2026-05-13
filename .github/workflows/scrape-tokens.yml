@@ -41,8 +41,10 @@ jobs:
           playwright install-deps chromium
 
       - name: Create accounts file from secret
+        env:
+          ACCOUNTS_DATA: ${{ secrets.ACCOUNTS_JSON }}
         run: |
-          echo '${{ secrets.ACCOUNTS_JSON }}' > scripts/accounts_secret.json
+          printf '%s' "$ACCOUNTS_DATA" > scripts/accounts_secret.json
 
       - name: Run scraper
         env:
