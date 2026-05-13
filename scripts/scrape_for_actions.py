@@ -211,13 +211,27 @@ async def main():
     if accounts_json_env:
         # Dari GitHub Actions environment variable
         log("Loading accounts from ACCOUNTS_JSON environment variable...")
+
+        # Bersihkan karakter kontrol yang tidak valid dalam JSON
+        def clean_json_string(s):
+            # Hapus karakter kontrol kecuali \n, \r, \t
+            cleaned = ""
+            for char in s:
+                if ord(char) >= 32 or char in '\n\r\t':
+                    cleaned += char
+            return cleaned
+
+        cleaned_json = clean_json_string(accounts_json_env)
+        if len(cleaned_json) != len(accounts_json_env):
+            log(f"  Cleaned {len(accounts_json_env) - len(cleaned_json)} invalid characters from JSON")
+
         try:
-            accounts = json.loads(accounts_json_env)
+            accounts = json.loads(cleaned_json)
         except json.JSONDecodeError as e:
             log(f"ERROR: Gagal parse ACCOUNTS_JSON: {e}")
-            log(f"Content preview (repr): {repr(accounts_json_env[:200])}")
+            log(f"Content preview (repr): {repr(cleaned_json[:200])}")
             # Coba cari karakter bermasalah
-            for i, char in enumerate(accounts_json_env[:1000]):
+            for i, char in enumerate(cleaned_json[:1000]):
                 if ord(char) < 32 and char not in '\n\r\t':
                     log(f"  Invalid char at position {i}: ord={ord(char)}")
             sys.exit(1)
