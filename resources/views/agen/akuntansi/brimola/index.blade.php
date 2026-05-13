@@ -366,7 +366,7 @@
             Harga/Tabung <span style="color:#DC2626">*</span>
           </label>
           <input type="number" name="harga_per_tabung" id="input-harga" required min="0" placeholder="0"
-                 value="{{ \App\Models\HargaReferensi::aktif()?->harga_per_tabung ?? 0 }}"
+                 value="{{ \App\Models\HargaReferensi::hargaAktif('jual_pangkalan')?->harga ?? 0 }}"
                  onchange="hitungTotal()" oninput="hitungTotal()"
                  style="width:100%;border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:8px;padding:8px 12px;font-size:13px;outline:none;box-sizing:border-box">
         </div>

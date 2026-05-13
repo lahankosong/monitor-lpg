@@ -154,7 +154,7 @@ class BrimolaController extends Controller
         }
 
         // Ambil harga referensi aktif untuk kalkulasi nilai
-        $harga = HargaReferensi::aktif()?->harga_per_tabung ?? 0;
+        $harga = HargaReferensi::hargaAktif('jual_pangkalan')?->harga ?? 0;
 
         // Load semua pangkalan untuk matching
         $pangkalans = Pangkalan::all();
