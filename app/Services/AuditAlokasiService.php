@@ -132,10 +132,10 @@ class AuditAlokasiService
 
         // Ambil harga refil aktif
         $harga = DB::table('harga_referensis')
-            ->where('kategori', 'harga_jual_pangkalan')
-            ->where('is_aktif', true)
+            ->where('kategori', 'jual_pangkalan')
+            ->where('is_active', true)
             ->orderByDesc('berlaku_mulai')
-            ->value('harga_per_tabung') ?? 0;
+            ->value('harga') ?? 0;
 
         $totalNilaiDist = $totalDist * $harga;
         $saldoTabung    = $totalBayar - $totalDist;
