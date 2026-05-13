@@ -134,6 +134,7 @@ Route::prefix('dashboard')->name('dashboard.')->middleware(['auth'])->group(func
         // BRImola
         Route::prefix('brimola')->name('brimola.')->group(function () {
             Route::get('/',        [BrimolaController::class, 'index'])->name('index');
+            Route::post('/',       [BrimolaController::class, 'store'])->name('store');
             Route::post('/import', [BrimolaController::class, 'import'])->name('import');
             Route::post('/match',  [BrimolaController::class, 'match'])->name('match');
             Route::post('/verify', [BrimolaController::class, 'verify'])->name('verify');

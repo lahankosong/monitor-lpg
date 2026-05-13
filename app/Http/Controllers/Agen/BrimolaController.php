@@ -94,6 +94,40 @@ class BrimolaController extends Controller
         ));
     }
 
+
+    // ─────────────────────────────────────────────────────────────────
+    // STORE — Input manual transaksi pembayaran
+    // ─────────────────────────────────────────────────────────────────
+    public function store(Request $request)
+    {
+        $request->validate([
+            'pangkalan_id'    => 'required|exists:pangkalans,id',
+            'no_briva'        => 'required|string|unique:brimola_transaksi,no_briva',
+            'tanggal_bayar'   => 'required|date',
+            'jumlah_tabung'   => 'required|integer|min:1',
+            'harga_per_tabung'=> 'required|numeric|min:0',
+        ]);
+
+        $pangkalan = Pangkalan::find($request->pangkalan_id);
+        $totalBayar = $request->jumlah_tabung * $request->harga_per_tabung;
+
+        DB::table('brimola_transaksi')->insert([
+            'pangkalan_id'     => $request->pangkalan_id,
+            'nama_pangkalan'   => $pangkalan->nama_pangkalan,
+            'no_briva'         => $request->no_briva,
+            'tanggal_bayar'    => Carbon::parse($request->tanggal_bayar),
+            'jumlah_tabung'    => $request->jumlah_tabung,
+            'harga_per_tabung' => $request->harga_per_tabung,
+            'total_bayar'      => $totalBayar,
+            'status'           => 'matched',
+            'sumber_file'      => 'input_manual',
+            'created_at'       => now(),
+            'updated_at'       => now(),
+        ]);
+
+        return back()->with('success', 'Transaksi pembayaran berhasil ditambahkan.');
+    }
+
     // ─────────────────────────────────────────────────────────────────
     // IMPORT — Upload file Excel BRImola
     // ─────────────────────────────────────────────────────────────────
@@ -258,7 +292,7 @@ class BrimolaController extends Controller
     }
 
     // ─────────────────────────────────────────────────────────────────
-    // EXPORT — Export ke CSV
+    // EXPORT — Export ke Excel (XLSX)
     // ─────────────────────────────────────────────────────────────────
     public function export(Request $request)
     {
@@ -274,31 +308,59 @@ class BrimolaController extends Controller
             ->get();
 
         $bulanStr = Carbon::create($tahun, $bulan)->format('Y-m');
-        $filename = "brimola_{$bulanStr}.csv";
+        $filename = "brimola_{$bulanStr}.xlsx";
 
-        $callback = function () use ($data) {
-            $handle = fopen('php://output', 'w');
-            fprintf($handle, chr(0xEF).chr(0xBB).chr(0xBF)); // BOM UTF-8
-            fputcsv($handle, ['pangkalan','no_briva','tanggal_bayar','jumlah_tabung',
-                              'harga_per_tabung','total_bayar','status','no_reg_db']);
-            foreach ($data as $r) {
-                fputcsv($handle, [
-                    $r->nama_pangkalan,
-                    $r->no_briva,
-                    Carbon::parse($r->tanggal_bayar)->format('d/m/Y H:i'),
-                    $r->jumlah_tabung,
-                    $r->harga_per_tabung,
-                    $r->total_bayar,
-                    $r->status,
-                    $r->no_reg ?? '',
-                ]);
-            }
-            fclose($handle);
-        };
+        $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle('BRImola');
 
-        return response()->stream($callback, 200, [
-            'Content-Type'        => 'text/csv; charset=UTF-8',
-            'Content-Disposition' => "attachment; filename=\"{$filename}\"",
+        // Header
+        $headers = ['Pangkalan', 'No BRIVA', 'Tanggal Bayar', 'Jumlah Tabung',
+                    'Harga/Tabung', 'Total Bayar', 'Status', 'No Reg DB'];
+        $sheet->fromArray($headers, null, 'A1');
+
+        // Style header
+        $headerStyle = [
+            'font' => ['bold' => true],
+            'fill' => [
+                'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
+                'startColor' => ['rgb' => 'E2E8F0'],
+            ],
+        ];
+        $sheet->getStyle('A1:H1')->applyFromArray($headerStyle);
+
+        // Data rows
+        $row = 2;
+        foreach ($data as $r) {
+            $sheet->setCellValue("A{$row}", $r->nama_pangkalan);
+            $sheet->setCellValue("B{$row}", $r->no_briva);
+            $sheet->setCellValue("C{$row}", Carbon::parse($r->tanggal_bayar)->format('d/m/Y H:i'));
+            $sheet->setCellValue("D{$row}", $r->jumlah_tabung);
+            $sheet->setCellValue("E{$row}", $r->harga_per_tabung);
+            $sheet->setCellValue("F{$row}", $r->total_bayar);
+            $sheet->setCellValue("G{$row}", $r->status);
+            $sheet->setCellValue("H{$row}", $r->no_reg ?? '');
+            $row++;
+        }
+
+        // Auto-width columns
+        foreach (range('A', 'H') as $col) {
+            $sheet->getColumnDimension($col)->setAutoSize(true);
+        }
+
+        // Format number columns
+        $lastRow = $row - 1;
+        if ($lastRow >= 2) {
+            $sheet->getStyle("D2:F{$lastRow}")->getNumberFormat()
+                ->setFormatCode(\PhpOffice\PhpSpreadsheet\Style\NumberFormat::FORMAT_NUMBER_COMMA_SEPARATED1);
+        }
+
+        $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+
+        return response()->streamDownload(function () use ($writer) {
+            $writer->save('php://output');
+        }, $filename, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         ]);
     }
 
