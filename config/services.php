@@ -35,4 +35,8 @@ return [
         ],
     ],
 
+    'github_actions' => [
+        'api_key' => env('GITHUB_ACTIONS_API_KEY'),
+    ],
+
 ];
