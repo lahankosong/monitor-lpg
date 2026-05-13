@@ -8,6 +8,8 @@ import aiohttp
 import json
 import sys
 import os
+import base64
+import re
 from pathlib import Path
 from datetime import datetime
 from playwright.async_api import async_playwright
@@ -180,19 +182,12 @@ async def main():
     log("MyPertamina Batch Scraper untuk GitHub Actions")
     log("=" * 50)
 
-    # Debug: tampilkan environment variables yang ada (tanpa nilai sensitif)
+    # Debug: tampilkan environment variables yang ada
     log("DEBUG: Checking environment variables...")
     log(f"  LARAVEL_API_URL exists: {'LARAVEL_API_URL' in os.environ}")
     log(f"  LARAVEL_API_KEY exists: {'LARAVEL_API_KEY' in os.environ}")
+    log(f"  ACCOUNTS_BASE64 exists: {'ACCOUNTS_BASE64' in os.environ}")
     log(f"  ACCOUNTS_JSON exists: {'ACCOUNTS_JSON' in os.environ}")
-
-    accounts_json_env = os.environ.get("ACCOUNTS_JSON", "")
-    if accounts_json_env:
-        log(f"  ACCOUNTS_JSON length: {len(accounts_json_env)} chars")
-        log(f"  ACCOUNTS_JSON first 50 chars: {repr(accounts_json_env[:50])}")
-        log(f"  ACCOUNTS_JSON last 50 chars: {repr(accounts_json_env[-50:])}")
-    else:
-        log("  ACCOUNTS_JSON is empty or not set")
 
     # Baca konfigurasi dari environment
     api_url = os.environ.get("LARAVEL_API_URL", "").rstrip("/")
@@ -207,34 +202,45 @@ async def main():
     log(f"API URL: {api_url}")
     log(f"Date range: {date_from} - {date_to}")
 
-    # Baca accounts dari environment variable atau file
-    if accounts_json_env:
-        # Dari GitHub Actions environment variable
-        log("Loading accounts from ACCOUNTS_JSON environment variable...")
+    # Baca accounts - prioritaskan ACCOUNTS_BASE64 (lebih aman dari escaping)
+    accounts_base64 = os.environ.get("ACCOUNTS_BASE64", "")
+    accounts_json_env = os.environ.get("ACCOUNTS_JSON", "")
+    accounts = None
 
-        # Bersihkan karakter kontrol yang tidak valid dalam JSON
-        def clean_json_string(s):
-            # Hapus karakter kontrol kecuali \n, \r, \t
-            cleaned = ""
-            for char in s:
-                if ord(char) >= 32 or char in '\n\r\t':
-                    cleaned += char
-            return cleaned
+    if accounts_base64:
+        # Metode Base64 - paling aman
+        log("Loading accounts from ACCOUNTS_BASE64...")
+        log(f"  Base64 length: {len(accounts_base64)} chars")
+        try:
+            json_str = base64.b64decode(accounts_base64).decode('utf-8')
+            log(f"  Decoded to {len(json_str)} chars")
+            accounts = json.loads(json_str)
+            log(f"  Parsed {len(accounts)} accounts successfully")
+        except Exception as e:
+            log(f"ERROR: Gagal decode ACCOUNTS_BASE64: {e}")
+            sys.exit(1)
 
-        cleaned_json = clean_json_string(accounts_json_env)
-        if len(cleaned_json) != len(accounts_json_env):
-            log(f"  Cleaned {len(accounts_json_env) - len(cleaned_json)} invalid characters from JSON")
+    elif accounts_json_env:
+        # Metode JSON langsung - hapus SEMUA karakter kontrol
+        log("Loading accounts from ACCOUNTS_JSON...")
+        log(f"  Original length: {len(accounts_json_env)} chars")
+
+        # Hapus SEMUA karakter kontrol ASCII 0-31 dan 127
+        # Ini termasuk \n, \r, \t yang tidak boleh literal di dalam JSON string
+        cleaned = re.sub(r'[\x00-\x1f\x7f]', '', accounts_json_env)
+        removed = len(accounts_json_env) - len(cleaned)
+        if removed > 0:
+            log(f"  Removed {removed} control characters")
+        log(f"  Cleaned length: {len(cleaned)} chars")
 
         try:
-            accounts = json.loads(cleaned_json)
+            accounts = json.loads(cleaned)
+            log(f"  Parsed {len(accounts)} accounts successfully")
         except json.JSONDecodeError as e:
             log(f"ERROR: Gagal parse ACCOUNTS_JSON: {e}")
-            log(f"Content preview (repr): {repr(cleaned_json[:200])}")
-            # Coba cari karakter bermasalah
-            for i, char in enumerate(cleaned_json[:1000]):
-                if ord(char) < 32 and char not in '\n\r\t':
-                    log(f"  Invalid char at position {i}: ord={ord(char)}")
+            log(f"  Preview: {repr(cleaned[:300])}")
             sys.exit(1)
+
     else:
         # Fallback ke file untuk testing lokal
         accounts_file = Path(__file__).parent / "accounts.json"

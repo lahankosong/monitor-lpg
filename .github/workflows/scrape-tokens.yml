@@ -44,6 +44,8 @@ jobs:
         env:
           LARAVEL_API_URL: ${{ secrets.LARAVEL_API_URL }}
           LARAVEL_API_KEY: ${{ secrets.LARAVEL_API_KEY }}
+          # Gunakan ACCOUNTS_BASE64 (direkomendasikan) atau ACCOUNTS_JSON
+          ACCOUNTS_BASE64: ${{ secrets.ACCOUNTS_BASE64 }}
           ACCOUNTS_JSON: ${{ secrets.ACCOUNTS_JSON }}
           DATE_FROM: ${{ github.event.inputs.date_from }}
           DATE_TO: ${{ github.event.inputs.date_to }}
