@@ -59,9 +59,50 @@ class AuditBrimolaController extends Controller
 
         $timeline = $this->audit->timelinePangkalan($pangkalanId);
 
+        // Ambil transaksi BRImola untuk verifikasi
+        $brimolaTransaksi = DB::table('brimola_transaksi')
+            ->where('pangkalan_id', $pangkalanId)
+            ->orderByDesc('tanggal_bayar')
+            ->get();
+
+        // Hitung summary per status
+        $brimolaStats = DB::table('brimola_transaksi')
+            ->where('pangkalan_id', $pangkalanId)
+            ->selectRaw("
+                COUNT(*) as total,
+                SUM(CASE WHEN status='matched' THEN 1 ELSE 0 END) as matched,
+                SUM(CASE WHEN status='verified' THEN 1 ELSE 0 END) as verified,
+                SUM(CASE WHEN status='unmatched' THEN 1 ELSE 0 END) as unmatched
+            ")->first();
+
         return view('agen.akuntansi.brimola.audit-detail', compact(
-            'pangkalan','saldo','timeline'
+            'pangkalan','saldo','timeline','brimolaTransaksi','brimolaStats'
         ));
+    }
+
+    /** Verifikasi transaksi BRImola dari halaman audit */
+    public function verify(Request $request, int $pangkalanId)
+    {
+        $request->validate(['transaksi_ids' => 'required|array']);
+
+        DB::table('brimola_transaksi')
+            ->whereIn('id', $request->transaksi_ids)
+            ->where('pangkalan_id', $pangkalanId)
+            ->where('status', 'matched')
+            ->update(['status' => 'verified', 'updated_at' => now()]);
+
+        return back()->with('success', count($request->transaksi_ids).' transaksi berhasil diverifikasi.');
+    }
+
+    /** Verifikasi semua transaksi matched untuk pangkalan */
+    public function verifyAll(int $pangkalanId)
+    {
+        $count = DB::table('brimola_transaksi')
+            ->where('pangkalan_id', $pangkalanId)
+            ->where('status', 'matched')
+            ->update(['status' => 'verified', 'updated_at' => now()]);
+
+        return back()->with('success', $count.' transaksi berhasil diverifikasi.');
     }
 
     /** Re-alokasi semua pangkalan (bulk) */

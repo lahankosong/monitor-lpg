@@ -146,6 +146,8 @@ Route::prefix('dashboard')->name('dashboard.')->middleware(['auth'])->group(func
                 Route::get('/pangkalan/{id}',                  [AuditBrimolaController::class, 'detail'])->name('detail');
                 Route::post('/realokasi-semua',                [AuditBrimolaController::class, 'realokasiSemua'])->name('realokasi-semua');
                 Route::post('/realokasi-pangkalan/{id}',       [AuditBrimolaController::class, 'realokasiPangkalan'])->name('realokasi-pangkalan');
+                Route::post('/pangkalan/{id}/verify',          [AuditBrimolaController::class, 'verify'])->name('verify');
+                Route::post('/pangkalan/{id}/verify-all',      [AuditBrimolaController::class, 'verifyAll'])->name('verify-all');
             });
         });
     }); // ── end agen/akuntansi ──
