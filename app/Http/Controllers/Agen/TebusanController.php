@@ -11,6 +11,7 @@ use App\Models\TebusanKitirDetail;
 use App\Models\JurnalAkuntansi;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use App\Services\JurnalService;
 use Illuminate\Support\Facades\DB;
 
 class TebusanController extends Controller
@@ -33,7 +34,7 @@ class TebusanController extends Controller
                 SUM(jumlah_tabung_ditebus) as total_tabung,
                 SUM(total_bayar) as total_bayar,
                 SUM(total_bayar_aktual) as total_aktual,
-                SUM(selisih_pembulatan) as total_selisih
+                SUM(selisih_pembulatan * jumlah_tabung_ditebus) as total_selisih
             ')->first();
 
         $hargaTebus = HargaReferensi::hargaAktif('tebus_refil');
@@ -121,7 +122,7 @@ class TebusanController extends Controller
                 'no_rekening_tujuan'    => $request->no_rekening_tujuan,
                 'bukti_transfer'        => null,
                 'keterangan'            => $request->keterangan,
-                'created_by'            => null, // fallback jika belum ada multi-user
+                'created_by'            => auth()->id() ?? 1, // fallback jika belum ada multi-user
             ]);
 
             foreach ($details as $d) {
@@ -142,7 +143,7 @@ class TebusanController extends Controller
                 'jumlah'     => $totalAktual,
                 'keterangan' => "Tebusan SA#{$kitir->nomor_sa} — {$totalTabung} tabung @ Rp ".number_format($hargaTebus),
                 'referensi'  => $kitir->nomor_sa,
-                'created_by' => null,
+                'created_by' => auth()->id() ?? 1,
             ]);
 
             // Jurnal selisih terpisah jika ada
@@ -154,8 +155,22 @@ class TebusanController extends Controller
                     'jumlah'     => abs($selisih),
                     'keterangan' => "Selisih pembulatan SA#{$kitir->nomor_sa} total Rp ".number_format(abs($selisih), 2),
                     'referensi'  => $kitir->nomor_sa,
-                    'created_by' => null,
+                    'created_by' => auth()->id() ?? 1,
                 ]);
+            }
+
+            // ── Jurnal Buku Besar otomatis ─────────────────────────
+            // Debit 2001 Utang Pertamina, Kredit 1002 Rekening Giro
+            try {
+                $jurnalSvc = app(JurnalService::class);
+                $jurnalSvc->tebusan(
+                    \Carbon\Carbon::parse($request->tanggal_bayar),
+                    (int) $totalAktual,
+                    $kitir->nomor_sa ?? 'SA-'.$kitir->id,
+                    $tebusan->id
+                );
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::warning('[Tebusan] Gagal buat jurnal buku besar: '.$e->getMessage());
             }
         });
 

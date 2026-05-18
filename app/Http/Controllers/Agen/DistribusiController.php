@@ -2,6 +2,7 @@
 namespace App\Http\Controllers\Agen;
 
 use App\Http\Controllers\Controller;
+use App\Services\JurnalService;
 use App\Models\{
     SuratJalanHeader, SuratJalanDetail,
     SjSisaDistribusi, SjPengalihan, SjDetailTambahan,
@@ -315,6 +316,36 @@ class DistribusiController extends Controller
         $header->update(['status' => 'selesai']);
         if ($header->kitirDetail) {
             $header->kitirDetail->update(['status' => 'diambil']);
+        }
+
+        // ── Jurnal Buku Besar otomatis ─────────────────────────────
+        // Debit 1003 Piutang Dagang, Kredit 4001 Penjualan Refil
+        // Debit 5001 HPP Tebusan, Kredit 1005 Persediaan Tabung
+        try {
+            $hargaJual  = (int) (\DB::table('harga_referensis')
+                ->where('kategori', 'jual_pangkalan')
+                ->where('is_aktif', true)
+                ->orderByDesc('berlaku_mulai')
+                ->value('harga') ?? 0);
+
+            $hargaTebus = (int) (\DB::table('harga_referensis')
+                ->where('kategori', 'tebus_refil')
+                ->where('is_aktif', true)
+                ->orderByDesc('berlaku_mulai')
+                ->value('harga') ?? 0);
+
+            if ($hargaJual > 0 && $hargaTebus > 0 && $totalTerkirim > 0) {
+                app(JurnalService::class)->distribusi(
+                    \Carbon\Carbon::parse($header->tanggal),
+                    $totalTerkirim,
+                    $hargaJual,
+                    $hargaTebus,
+                    $header->no_sj ?? 'SJ-'.$header->id,
+                    $header->id
+                );
+            }
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::warning('[Distribusi] Gagal buat jurnal: '.$e->getMessage());
         }
     }
 

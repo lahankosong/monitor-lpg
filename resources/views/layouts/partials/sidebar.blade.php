@@ -84,6 +84,36 @@
     <svg class="sidebar-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 11H6a3 3 0 0 0-3 3v3a3 3 0 0 0 3 3h3"/><path d="M15 13l2 2 4-4"/><circle cx="12" cy="6" r="4"/></svg>
     Audit Pembayaran
   </a>
+  <a href="{{ route('dashboard.agen.akuntansi.piutang.index') }}"
+     class="sidebar-item {{ request()->routeIs('dashboard.agen.akuntansi.piutang*') ? 'active' : '' }}">
+    <svg class="sidebar-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+    Piutang Kerjasama
+  </a>
+  <a href="{{ route('dashboard.agen.akuntansi.buku-besar.jurnal') }}"
+     class="sidebar-item {{ request()->routeIs('dashboard.agen.akuntansi.buku-besar.jurnal*') ? 'active' : '' }}">
+    <svg class="sidebar-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+    Jurnal Umum
+  </a>
+  <a href="{{ route('dashboard.agen.akuntansi.buku-besar.index') }}"
+     class="sidebar-item {{ request()->routeIs('dashboard.agen.akuntansi.buku-besar.index') ? 'active' : '' }}">
+    <svg class="sidebar-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+    Buku Besar
+  </a>
+  <a href="{{ route('dashboard.agen.akuntansi.buku-besar.laba-rugi') }}"
+     class="sidebar-item {{ request()->routeIs('dashboard.agen.akuntansi.buku-besar.laba-rugi') ? 'active' : '' }}">
+    <svg class="sidebar-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+    Laba Rugi
+  </a>
+  <a href="{{ route('dashboard.agen.akuntansi.buku-besar.neraca') }}"
+     class="sidebar-item {{ request()->routeIs('dashboard.agen.akuntansi.buku-besar.neraca') ? 'active' : '' }}">
+    <svg class="sidebar-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+    Neraca
+  </a>
+  <a href="{{ route('dashboard.agen.akuntansi.kas.index') }}"
+     class="sidebar-item {{ request()->routeIs('dashboard.agen.akuntansi.kas*') ? 'active' : '' }}">
+    <svg class="sidebar-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+    Kas Kecil
+  </a>
 </div>
 
 <div class="sidebar-label" style="padding: 16px 20px 6px">Database</div>

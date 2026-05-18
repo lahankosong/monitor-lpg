@@ -182,18 +182,11 @@ async def main():
     log("MyPertamina Batch Scraper untuk GitHub Actions")
     log("=" * 50)
 
-    # Debug: tampilkan environment variables yang ada
-    log("DEBUG: Checking environment variables...")
-    log(f"  LARAVEL_API_URL exists: {'LARAVEL_API_URL' in os.environ}")
-    log(f"  LARAVEL_API_KEY exists: {'LARAVEL_API_KEY' in os.environ}")
-    log(f"  ACCOUNTS_BASE64 exists: {'ACCOUNTS_BASE64' in os.environ}")
-    log(f"  ACCOUNTS_JSON exists: {'ACCOUNTS_JSON' in os.environ}")
-
     # Baca konfigurasi dari environment
-    api_url = os.environ.get("LARAVEL_API_URL", "").rstrip("/")
-    api_key = os.environ.get("LARAVEL_API_KEY", "")
+    api_url   = os.environ.get("LARAVEL_API_URL", "").rstrip("/")
+    api_key   = os.environ.get("LARAVEL_API_KEY", "")
     date_from = os.environ.get("DATE_FROM", "") or datetime.now().strftime("%Y-%m-%d")
-    date_to = os.environ.get("DATE_TO", "") or datetime.now().strftime("%Y-%m-%d")
+    date_to   = os.environ.get("DATE_TO",   "") or datetime.now().strftime("%Y-%m-%d")
 
     if not api_url or not api_key:
         log("ERROR: LARAVEL_API_URL dan LARAVEL_API_KEY harus diset!")
@@ -202,54 +195,60 @@ async def main():
     log(f"API URL: {api_url}")
     log(f"Date range: {date_from} - {date_to}")
 
-    # Baca accounts - prioritaskan ACCOUNTS_BASE64 (lebih aman dari escaping)
-    accounts_base64 = os.environ.get("ACCOUNTS_BASE64", "")
-    accounts_json_env = os.environ.get("ACCOUNTS_JSON", "")
+    # ── Ambil akun dari Laravel API (single source of truth) ──────
     accounts = None
 
-    if accounts_base64:
-        # Metode Base64 - paling aman
-        log("Loading accounts from ACCOUNTS_BASE64...")
-        log(f"  Base64 length: {len(accounts_base64)} chars")
-        try:
-            json_str = base64.b64decode(accounts_base64).decode('utf-8')
-            log(f"  Decoded to {len(json_str)} chars")
-            accounts = json.loads(json_str)
-            log(f"  Parsed {len(accounts)} accounts successfully")
-        except Exception as e:
-            log(f"ERROR: Gagal decode ACCOUNTS_BASE64: {e}")
-            sys.exit(1)
+    log("Fetching accounts from Laravel API...")
+    try:
+        import urllib.request
+        req = urllib.request.Request(
+            f"{api_url}/api/github-actions/accounts",
+            headers={"X-API-Key": api_key, "Accept": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            body = json.loads(resp.read().decode())
+            if body.get("success"):
+                accounts = body["accounts"]
+                log(f"  ✓ {len(accounts)} akun diterima dari database")
+            else:
+                log(f"  API error: {body.get('message')}")
+    except Exception as e:
+        log(f"  WARN: Gagal fetch dari API ({e}), coba fallback...")
 
-    elif accounts_json_env:
-        # Metode JSON langsung - hapus SEMUA karakter kontrol
-        log("Loading accounts from ACCOUNTS_JSON...")
-        log(f"  Original length: {len(accounts_json_env)} chars")
+    # ── Fallback: env vars (untuk backward compat / testing) ──────
+    if not accounts:
+        accounts_base64   = os.environ.get("ACCOUNTS_BASE64", "")
+        accounts_json_env = os.environ.get("ACCOUNTS_JSON", "")
 
-        # Hapus SEMUA karakter kontrol ASCII 0-31 dan 127
-        # Ini termasuk \n, \r, \t yang tidak boleh literal di dalam JSON string
-        cleaned = re.sub(r'[\x00-\x1f\x7f]', '', accounts_json_env)
-        removed = len(accounts_json_env) - len(cleaned)
-        if removed > 0:
-            log(f"  Removed {removed} control characters")
-        log(f"  Cleaned length: {len(cleaned)} chars")
+        if accounts_base64:
+            log("Fallback: loading accounts from ACCOUNTS_BASE64...")
+            try:
+                accounts = json.loads(base64.b64decode(accounts_base64).decode("utf-8"))
+                log(f"  {len(accounts)} akun dari ACCOUNTS_BASE64")
+            except Exception as e:
+                log(f"ERROR: Gagal decode ACCOUNTS_BASE64: {e}")
+                sys.exit(1)
 
-        try:
-            accounts = json.loads(cleaned)
-            log(f"  Parsed {len(accounts)} accounts successfully")
-        except json.JSONDecodeError as e:
-            log(f"ERROR: Gagal parse ACCOUNTS_JSON: {e}")
-            log(f"  Preview: {repr(cleaned[:300])}")
-            sys.exit(1)
+        elif accounts_json_env:
+            log("Fallback: loading accounts from ACCOUNTS_JSON...")
+            cleaned = re.sub(r"[\x00-\x1f\x7f]", "", accounts_json_env)
+            try:
+                accounts = json.loads(cleaned)
+                log(f"  {len(accounts)} akun dari ACCOUNTS_JSON")
+            except json.JSONDecodeError as e:
+                log(f"ERROR: Gagal parse ACCOUNTS_JSON: {e}")
+                sys.exit(1)
 
-    else:
-        # Fallback ke file untuk testing lokal
-        accounts_file = Path(__file__).parent / "accounts.json"
-        if not accounts_file.exists():
-            log("ERROR: ACCOUNTS_JSON env tidak ada dan file accounts.json tidak ditemukan!")
-            sys.exit(1)
-        log(f"Loading accounts from file: {accounts_file}")
-        with open(accounts_file, "r", encoding="utf-8") as f:
-            accounts = json.load(f)
+        else:
+            # Fallback terakhir: file lokal untuk testing
+            accounts_file = Path(__file__).parent / "accounts.json"
+            if not accounts_file.exists():
+                log("ERROR: Tidak bisa fetch accounts dari API maupun env/file!")
+                sys.exit(1)
+            log(f"Fallback: loading accounts from file {accounts_file}")
+            with open(accounts_file, "r", encoding="utf-8") as f:
+                accounts = json.load(f)
+            log(f"  {len(accounts)} akun dari file")
 
     if not accounts:
         log("ERROR: Tidak ada akun dalam file!")

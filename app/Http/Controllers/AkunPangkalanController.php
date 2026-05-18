@@ -31,7 +31,17 @@ class AkunPangkalanController extends Controller
      */
     public function index()
     {
-        $akuns = PangkalanSession::orderBy('label')->get()->map(function ($s) {
+        // Deduplikasi per username — prioritaskan UUID asli (bukan pending_)
+        // Jika ada 2 baris (pending_ dan UUID), pakai yang UUID
+        $raw = PangkalanSession::orderBy('label')->get()
+            ->groupBy('username')
+            ->map(function ($group) {
+                // Pilih baris UUID asli jika ada, fallback ke pending_
+                return $group->first(fn($s) => !str_starts_with($s->pangkalan_id, 'pending_'))
+                    ?? $group->first();
+            });
+
+        $akuns = $raw->map(function ($s) {
             $token   = PangkalanToken::where('pangkalan_id', $s->pangkalan_id)->first();
             $lastLog = ScrapeLog::where('pangkalan_id', $s->pangkalan_id)
                 ->latest('scraped_at')->first();
@@ -42,15 +52,16 @@ class AkunPangkalanController extends Controller
                 'label'          => $s->label,
                 'username'       => $s->username,
                 'registration_id'=> $s->registration_id,
-                'has_password'   => ! empty($s->password_encrypted),
+                'has_password'   => !empty($s->password_encrypted),
                 'token_valid'    => $token?->token_expires_at?->isFuture() ?? false,
                 'token_expires'  => $token?->token_expires_at?->format('H:i d/m'),
                 'last_scrape'    => $lastLog?->scraped_at?->format('d/m/Y H:i'),
                 'last_status'    => $lastLog?->status,
                 'last_saved'     => $lastLog?->records_saved ?? 0,
                 'is_active'      => $s->is_active,
+                'is_pending'     => str_starts_with($s->pangkalan_id, 'pending_'),
             ];
-        });
+        })->sortBy('label')->values();
 
         $isRunning  = Cache::get('batch_scrape_running', false);
         $lastResult = Cache::get('batch_scrape_last_result');
@@ -387,10 +398,25 @@ class AkunPangkalanController extends Controller
      */
     public function statusApi()
     {
+        // Baca log dari file realtime (lebih reliable dari Cache antar proses)
+        $logFile = Cache::get('batch_log_file',
+                   storage_path('app/batch_realtime_log.jsonl'));
+
+        $logs = [];
+        if (file_exists($logFile)) {
+            $lines = file($logFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+            foreach (array_slice($lines, -150) as $line) { // ambil 150 baris terakhir
+                $decoded = json_decode($line, true);
+                if ($decoded) $logs[] = $decoded;
+            }
+        }
+
         return response()->json([
             'running'     => Cache::get('batch_scrape_running', false),
             'progress'    => Cache::get('batch_scrape_progress', []),
             'last_result' => Cache::get('batch_scrape_last_result'),
+            'logs'        => $logs,
+            'log_count'   => count($logs),
         ]);
     }
 

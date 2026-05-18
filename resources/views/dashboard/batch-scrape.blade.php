@@ -3,145 +3,160 @@
 
 @section('content')
 
-<div class="flex items-center justify-between mb-5 flex-wrap gap-3">
+<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;margin-bottom:20px">
   <div>
-    <h1 class="text-lg font-semibold">Batch Scrape — {{ count($accounts) }} Pangkalan</h1>
-    <p class="text-xs text-gray-500 mt-0.5">
-      Login otomatis ke semua pangkalan via Playwright, scrape data sekaligus.
+    <h1 style="font-size:20px;font-weight:700;color:var(--text)">Batch Scrape</h1>
+    <p style="font-size:12px;color:var(--muted);margin-top:2px">
+      Login otomatis ke MyPertamina, ambil token, scrape transaksi semua pangkalan.
     </p>
   </div>
-</div>
-
-{{-- Status sistem --}}
-<div class="grid grid-cols-2 gap-4 mb-5">
-  <div class="bg-white border rounded-xl p-4 flex items-center gap-3">
-    <div class="text-2xl">{{ $hasScript ? '✅' : '❌' }}</div>
-    <div>
-      <p class="font-medium text-sm">Script Playwright</p>
-      <p class="text-xs text-gray-400">
-        {{ $hasScript ? 'auto_login_batch.py tersedia' : 'Script tidak ditemukan di scripts/' }}
-      </p>
-    </div>
-  </div>
-  <div class="bg-white border rounded-xl p-4 flex items-center gap-3">
-    <div class="text-2xl">{{ $hasAccounts ? '✅' : '❌' }}</div>
-    <div>
-      <p class="font-medium text-sm">accounts.json</p>
-      <p class="text-xs text-gray-400">
-        {{ $hasAccounts ? count($accounts).' akun terdaftar' : 'Belum ada akun' }}
-      </p>
-    </div>
-  </div>
+  <a href="{{ route('dashboard.akun.index') }}"
+     style="border:1px solid var(--border);color:var(--text);background:var(--surface);
+            border-radius:8px;padding:8px 14px;font-size:13px;text-decoration:none">
+    ⚙ Kelola Akun Pangkalan →
+  </a>
 </div>
 
 @if(session('success'))
-<div class="bg-green-50 border border-green-200 rounded-xl p-4 mb-5 text-sm text-green-800">
+<div style="background:#D1FAE5;border:1px solid #6EE7B7;border-radius:10px;padding:12px 16px;
+            margin-bottom:16px;font-size:13px;color:#065F46;font-weight:500">
   ✓ {{ session('success') }}
 </div>
 @endif
 @if($errors->any())
-<div class="bg-red-50 border border-red-200 rounded-xl p-4 mb-5 text-sm text-red-800">
+<div style="background:#FEE2E2;border:1px solid #FECACA;border-radius:10px;padding:12px 16px;
+            margin-bottom:16px;font-size:13px;color:#991B1B">
   @foreach($errors->all() as $e) ✗ {{ $e }}<br> @endforeach
 </div>
 @endif
 
-<div class="grid md:grid-cols-2 gap-5 mb-5">
+{{-- Status sistem --}}
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:20px">
 
-  {{-- Form jalankan batch --}}
-  <div class="bg-white rounded-xl border border-gray-200 p-5">
-    <h2 class="font-medium text-sm mb-1">Jalankan Batch Scrape</h2>
-    <p class="text-xs text-gray-400 mb-4">
-      Playwright akan login ke {{ count($accounts) }} pangkalan satu per satu,
-      ambil token, lalu scrape data transaksi otomatis.
-      Estimasi waktu: ~{{ count($accounts) * 30 }} detik.
+  <div class="stat-card" style="border-left:3px solid {{ $hasScript ? '#059669' : '#DC2626' }}">
+    <p style="font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase">Script Playwright</p>
+    <p style="font-size:16px;font-weight:700;color:var(--text);margin-top:4px">
+      {{ $hasScript ? '✓ Tersedia' : '✗ Tidak Ada' }}
     </p>
-    <form action="{{ route('dashboard.batch.run') }}" method="POST" id="formBatch">
-      @csrf
-      <div class="grid grid-cols-2 gap-3 mb-4">
-        <div>
-          <label class="block text-xs text-gray-500 mb-1">Dari</label>
-          <input type="date" name="from" value="{{ now()->startOfWeek()->toDateString() }}"
-                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" required>
-        </div>
-        <div>
-          <label class="block text-xs text-gray-500 mb-1">Sampai</label>
-          <input type="date" name="to" value="{{ now()->toDateString() }}"
-                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" required>
-        </div>
-      </div>
-      <button type="submit" id="btnBatch"
-              {{ (! $hasScript || ! $hasAccounts) ? 'disabled' : '' }}
-              class="w-full bg-blue-600 text-white rounded-lg px-4 py-2.5 text-sm font-medium
-                     hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed">
-        🚀 Jalankan Batch Scrape Semua Pangkalan
-      </button>
-      <p id="loadingMsg" class="text-xs text-gray-400 mt-2 hidden text-center">
-        ⏳ Sedang login dan scraping {{ count($accounts) }} pangkalan... Mohon tunggu, jangan tutup halaman ini.
-      </p>
-    </form>
+    <p style="font-size:11px;color:var(--muted)">auto_login_batch.py</p>
   </div>
 
-  {{-- Form edit accounts.json --}}
-  <div class="bg-white rounded-xl border border-gray-200 p-5">
-    <h2 class="font-medium text-sm mb-1">Kelola Akun Pangkalan</h2>
-    <p class="text-xs text-gray-400 mb-3">
-      Edit daftar akun dalam format JSON. Setiap akun harus punya
-      <code class="bg-gray-100 px-1 rounded">label</code>,
-      <code class="bg-gray-100 px-1 rounded">email</code>, dan
-      <code class="bg-gray-100 px-1 rounded">pin</code>.
+  <div class="stat-card" style="border-left:3px solid {{ $hasAccounts ? '#059669' : '#DC2626' }}">
+    <p style="font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase">Akun di Database</p>
+    <p style="font-size:22px;font-weight:700;color:var(--text);margin-top:4px">
+      {{ $accounts->count() }}
     </p>
-    <form action="{{ route('dashboard.batch.accounts') }}" method="POST">
-      @csrf
-      <textarea name="accounts_json" rows="8"
-                class="w-full border border-gray-300 rounded-lg px-3 py-2 text-xs font-mono
-                       focus:outline-none focus:border-blue-500 resize-none"
-      >{{ json_encode($accounts, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) }}</textarea>
-      <button type="submit"
-              class="mt-2 border border-gray-300 rounded-lg px-4 py-2 text-sm hover:bg-gray-50 w-full">
-        Simpan Daftar Akun
-      </button>
-    </form>
+    <p style="font-size:11px;color:var(--muted)">akun aktif siap scrape</p>
   </div>
+
+  @php
+    $siapScrape  = $accounts->count();
+    $passTidakAda = \App\Models\PangkalanSession::where('is_active', true)
+                    ->whereNull('password_encrypted')->count();
+  @endphp
+  @if($passTidakAda > 0)
+  <div class="stat-card" style="border-left:3px solid #F59E0B">
+    <p style="font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase">Password Kosong</p>
+    <p style="font-size:22px;font-weight:700;color:#F59E0B;margin-top:4px">{{ $passTidakAda }}</p>
+    <p style="font-size:11px;color:var(--muted)">akun belum ada PIN</p>
+  </div>
+  @endif
 
 </div>
 
-{{-- Daftar akun --}}
-@if($hasAccounts)
-<div class="bg-white rounded-xl border border-gray-200 overflow-hidden mb-5">
-  <div class="px-4 py-3 border-b border-gray-100">
-    <h2 class="font-medium text-sm">Daftar Akun ({{ count($accounts) }} pangkalan)</h2>
+{{-- Form jalankan batch --}}
+<div class="card" style="padding:20px;margin-bottom:20px">
+  <h2 style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:4px">
+    Jalankan Batch Scrape
+  </h2>
+  <p style="font-size:12px;color:var(--muted);margin-bottom:16px">
+    Playwright akan login ke <strong>{{ $accounts->count() }} pangkalan</strong> satu per satu.
+    Estimasi: ~{{ $accounts->count() * 30 }} detik.
+    Credentials diambil langsung dari database.
+  </p>
+
+  <form action="{{ route('dashboard.batch.run') }}" method="POST" id="formBatch">
+    @csrf
+    <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:flex-end">
+      <div>
+        <label style="display:block;font-size:11px;color:var(--muted);font-weight:600;margin-bottom:5px">Dari</label>
+        <input type="date" name="from" value="{{ now()->startOfWeek()->toDateString() }}"
+               style="width:100%;border:1px solid var(--border);background:var(--surface);
+                      color:var(--text);border-radius:8px;padding:8px 12px;font-size:13px;outline:none">
+      </div>
+      <div>
+        <label style="display:block;font-size:11px;color:var(--muted);font-weight:600;margin-bottom:5px">Sampai</label>
+        <input type="date" name="to" value="{{ now()->toDateString() }}"
+               style="width:100%;border:1px solid var(--border);background:var(--surface);
+                      color:var(--text);border-radius:8px;padding:8px 12px;font-size:13px;outline:none">
+      </div>
+      <button type="submit" id="btnBatch"
+              {{ (!$hasScript || !$hasAccounts) ? 'disabled' : '' }}
+              style="background:var(--accent);color:#151F28;border:none;border-radius:8px;
+                     padding:9px 20px;font-size:13px;font-weight:700;cursor:pointer;
+                     white-space:nowrap;opacity:{{ (!$hasScript || !$hasAccounts) ? '0.4' : '1' }}">
+        🚀 Jalankan
+      </button>
+    </div>
+    <p id="loadingMsg" style="display:none;font-size:12px;color:var(--muted);margin-top:10px;text-align:center">
+      ⏳ Sedang login dan scraping {{ $accounts->count() }} pangkalan... Mohon tunggu.
+    </p>
+  </form>
+
+  @if(!$hasScript)
+  <div style="background:#FEF3C7;border-radius:8px;padding:10px 14px;margin-top:12px;font-size:12px;color:#92400E">
+    ⚠ Script <code>scripts/auto_login_batch.py</code> tidak ditemukan.
   </div>
-  <table class="w-full text-sm">
-    <thead class="bg-gray-50 text-xs text-gray-500 uppercase">
-      <tr>
-        <th class="text-left px-4 py-2">#</th>
-        <th class="text-left px-4 py-2">Label</th>
-        <th class="text-left px-4 py-2">Email</th>
-        <th class="text-center px-4 py-2">PIN</th>
-        <th class="text-right px-4 py-2">Scrape Terakhir</th>
+  @endif
+  @if(!$hasAccounts)
+  <div style="background:#FEE2E2;border-radius:8px;padding:10px 14px;margin-top:12px;font-size:12px;color:#991B1B">
+    ✗ Belum ada akun aktif di database.
+    <a href="{{ route('dashboard.akun.index') }}" style="color:#DC2626;font-weight:600">Tambah akun →</a>
+  </div>
+  @endif
+</div>
+
+{{-- Daftar akun dari DB --}}
+@if($hasAccounts)
+<div class="card" style="overflow:hidden;margin-bottom:20px">
+  <div style="padding:14px 18px;border-bottom:1px solid var(--border);
+              display:flex;justify-content:space-between;align-items:center">
+    <h2 style="font-size:14px;font-weight:600;color:var(--text)">
+      Akun Pangkalan ({{ $accounts->count() }})
+    </h2>
+    <span style="font-size:11px;color:var(--muted)">Sumber: database — bukan accounts.json</span>
+  </div>
+  <table style="width:100%;border-collapse:collapse;font-size:13px">
+    <thead>
+      <tr style="background:var(--bg)">
+        @foreach(['#','Nama Pangkalan','Email / No HP','Status Terakhir'] as $h)
+          <th style="text-align:left;padding:8px 14px;font-size:11px;font-weight:600;
+                     color:var(--muted);text-transform:uppercase">{{ $h }}</th>
+        @endforeach
       </tr>
     </thead>
-    <tbody class="divide-y divide-gray-100">
+    <tbody>
       @foreach($accounts as $i => $acc)
       @php
         $session = \App\Models\PangkalanSession::where('username', $acc['email'])->first();
         $lastLog = $session
-          ? \App\Models\ScrapeLog::where('pangkalan_id', $session->pangkalan_id)->latest('scraped_at')->first()
+          ? \App\Models\ScrapeLog::where('pangkalan_id', $session->pangkalan_id)
+              ->latest('scraped_at')->first()
           : null;
       @endphp
-      <tr class="hover:bg-gray-50">
-        <td class="px-4 py-2.5 text-gray-400">{{ $i + 1 }}</td>
-        <td class="px-4 py-2.5 font-medium">{{ $acc['label'] ?? '—' }}</td>
-        <td class="px-4 py-2.5 text-gray-600">{{ $acc['email'] }}</td>
-        <td class="px-4 py-2.5 text-center text-gray-400">••••••</td>
-        <td class="px-4 py-2.5 text-right text-xs text-gray-400">
+      <tr style="border-top:1px solid var(--border)">
+        <td style="padding:9px 14px;color:var(--muted)">{{ $i + 1 }}</td>
+        <td style="padding:9px 14px;font-weight:600;color:var(--text)">{{ $acc['label'] ?? '—' }}</td>
+        <td style="padding:9px 14px;color:var(--muted);font-size:12px">{{ $acc['email'] }}</td>
+        <td style="padding:9px 14px;font-size:12px">
           @if($lastLog)
-            {{ $lastLog->scraped_at->format('d/m H:i') }}
-            <span class="{{ $lastLog->status === 'success' ? 'text-green-600' : 'text-red-500' }}">
+            <span style="color:{{ $lastLog->status === 'success' ? '#059669' : '#DC2626' }}">
+              {{ $lastLog->status === 'success' ? '✓' : '✗' }}
+              {{ $lastLog->scraped_at->format('d/m H:i') }}
               ({{ $lastLog->records_saved }} txn)
             </span>
           @else
-            <span class="text-gray-300">Belum pernah</span>
+            <span style="color:var(--muted)">Belum pernah</span>
           @endif
         </td>
       </tr>
@@ -152,52 +167,59 @@
 @endif
 
 {{-- Log scraping terbaru --}}
-<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-  <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-    <h2 class="font-medium text-sm">Log Scraping Terbaru</h2>
-    <a href="{{ route('dashboard.nik.list') }}" class="text-xs text-blue-600 hover:underline">
-      Lihat data NIK →
-    </a>
+<div class="card" style="overflow:hidden">
+  <div style="padding:14px 18px;border-bottom:1px solid var(--border);
+              display:flex;justify-content:space-between;align-items:center">
+    <h2 style="font-size:14px;font-weight:600;color:var(--text)">Log Scraping Terbaru</h2>
+    <a href="{{ route('dashboard.nik.list') }}"
+       style="font-size:12px;color:var(--accent);text-decoration:none">Lihat data NIK →</a>
   </div>
-  <table class="w-full text-sm">
-    <thead class="bg-gray-50 text-xs text-gray-500 uppercase">
-      <tr>
-        <th class="text-left px-4 py-2">Pangkalan</th>
-        <th class="text-left px-4 py-2">Periode</th>
-        <th class="text-center px-4 py-2">Status</th>
-        <th class="text-right px-4 py-2">Diambil</th>
-        <th class="text-right px-4 py-2">Disimpan</th>
-        <th class="text-right px-4 py-2">Waktu</th>
+  <table style="width:100%;border-collapse:collapse;font-size:13px">
+    <thead>
+      <tr style="background:var(--bg)">
+        @foreach(['Pangkalan','Periode','Status','Diambil','Disimpan','Waktu'] as $h)
+          <th style="text-align:left;padding:8px 14px;font-size:11px;font-weight:600;
+                     color:var(--muted);text-transform:uppercase">{{ $h }}</th>
+        @endforeach
       </tr>
     </thead>
-    <tbody class="divide-y divide-gray-100">
+    <tbody>
       @forelse($lastLogs as $log)
       @php
         $token = \App\Models\PangkalanToken::where('pangkalan_id', $log->pangkalan_id)->first();
       @endphp
-      <tr class="hover:bg-gray-50">
-        <td class="px-4 py-2.5 font-medium">
-          {{ $token?->label ?? substr($log->pangkalan_id ?? '—', 0, 12) }}
+      <tr style="border-top:1px solid var(--border)">
+        <td style="padding:9px 14px;font-weight:600;color:var(--text)">
+          {{ $token?->label ?? substr($log->pangkalan_id ?? '—', 0, 14) }}
         </td>
-        <td class="px-4 py-2.5 text-xs text-gray-500">
-          {{ $log->start_date->format('d/m') }} s/d {{ $log->end_date->format('d/m') }}
+        <td style="padding:9px 14px;font-size:12px;color:var(--muted)">
+          {{ \Carbon\Carbon::parse($log->start_date)->format('d/m') }} s/d
+          {{ \Carbon\Carbon::parse($log->end_date)->format('d/m') }}
         </td>
-        <td class="px-4 py-2.5 text-center">
+        <td style="padding:9px 14px">
           @if($log->status === 'success')
-            <span class="badge-aman">Berhasil</span>
+            <span style="background:#D1FAE5;color:#065F46;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:500">
+              Berhasil
+            </span>
           @else
-            <span class="badge-alert">Gagal</span>
+            <span style="background:#FEE2E2;color:#991B1B;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:500">
+              Gagal
+            </span>
           @endif
         </td>
-        <td class="px-4 py-2.5 text-right text-xs">{{ $log->records_fetched }}</td>
-        <td class="px-4 py-2.5 text-right text-xs font-medium">{{ $log->records_saved }}</td>
-        <td class="px-4 py-2.5 text-right text-xs text-gray-400">
-          {{ $log->scraped_at->format('d/m H:i') }}
+        <td style="padding:9px 14px;text-align:right;font-size:12px;color:var(--muted)">
+          {{ $log->records_fetched }}
+        </td>
+        <td style="padding:9px 14px;text-align:right;font-size:12px;font-weight:700;color:var(--text)">
+          {{ $log->records_saved }}
+        </td>
+        <td style="padding:9px 14px;font-size:12px;color:var(--muted)">
+          {{ \Carbon\Carbon::parse($log->scraped_at)->format('d/m H:i') }}
         </td>
       </tr>
       @empty
       <tr>
-        <td colspan="6" class="px-4 py-6 text-center text-gray-400 text-xs">
+        <td colspan="6" style="padding:48px;text-align:center;color:var(--muted)">
           Belum ada log scraping.
         </td>
       </tr>
@@ -212,7 +234,7 @@
 <script>
 document.getElementById('formBatch').addEventListener('submit', function() {
   document.getElementById('btnBatch').disabled = true;
-  document.getElementById('loadingMsg').classList.remove('hidden');
+  document.getElementById('loadingMsg').style.display = 'block';
 });
 </script>
 @endpush

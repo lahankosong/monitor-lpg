@@ -133,7 +133,7 @@ class AuditAlokasiService
         // Ambil harga refil aktif
         $harga = DB::table('harga_referensis')
             ->where('kategori', 'jual_pangkalan')
-            ->where('is_active', true)
+            ->where('is_aktif', true)
             ->orderByDesc('berlaku_mulai')
             ->value('harga') ?? 0;
 

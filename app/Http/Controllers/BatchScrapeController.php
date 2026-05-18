@@ -17,22 +17,21 @@ class BatchScrapeController extends Controller
 {
     private string $pythonPath;
     private string $scriptsPath;
-    private string $accountsPath;
     private string $outputPath;
 
     public function __construct()
     {
         $this->pythonPath   = env('PYTHON_PATH', 'python');
         $this->scriptsPath  = base_path('scripts');
-        $this->accountsPath = base_path('scripts/accounts.json');
         $this->outputPath   = storage_path('app/batch_result.json');
     }
 
     public function index()
     {
+        // Baca langsung dari database — single source of truth
         $accounts    = $this->loadAccounts();
         $hasScript   = file_exists($this->scriptsPath . '/auto_login_batch.py');
-        $hasAccounts = ! empty($accounts);
+        $hasAccounts = $accounts->isNotEmpty();
         $lastLogs    = ScrapeLog::latest('scraped_at')->limit(20)->get();
         $isRunning   = Cache::get('batch_scrape_running', false);
         $lastResult  = Cache::get('batch_scrape_last_result');
@@ -52,10 +51,6 @@ class BatchScrapeController extends Controller
 
         if (! file_exists($this->scriptsPath . '/auto_login_batch.py')) {
             return back()->withErrors(['msg' => 'Script tidak ditemukan di scripts/auto_login_batch.py']);
-        }
-
-        if (! file_exists($this->accountsPath)) {
-            return back()->withErrors(['msg' => 'accounts.json tidak ditemukan di scripts/']);
         }
 
         if (Cache::get('batch_scrape_running')) {
@@ -178,31 +173,8 @@ class BatchScrapeController extends Controller
 
     public function updateAccounts(Request $request)
     {
-        $request->validate(['accounts_json' => 'required|string']);
-        $accounts = json_decode($request->accounts_json, true);
-
-        if (! is_array($accounts)) {
-            return back()->withErrors(['accounts_json' => 'Format JSON tidak valid']);
-        }
-
-        foreach ($accounts as $i => $acc) {
-            if (empty($acc['email']) || empty($acc['pin'])) {
-                return back()->withErrors([
-                    'accounts_json' => "Baris ke-" . ($i+1) . " tidak punya field email atau pin"
-                ]);
-            }
-        }
-
-        if (! is_dir($this->scriptsPath)) {
-            mkdir($this->scriptsPath, 0755, true);
-        }
-
-        file_put_contents(
-            $this->accountsPath,
-            json_encode($accounts, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)
-        );
-
-        return back()->with('success', count($accounts) . ' akun berhasil disimpan.');
+        // Deprecated — akun dikelola via halaman Akun Pangkalan
+        return back()->with('success', 'Gunakan halaman Akun Pangkalan untuk kelola credentials.');
     }
 
     // ── Helpers ──────────────────────────────────────────────────
@@ -369,9 +341,23 @@ class BatchScrapeController extends Controller
         ]);
     }
 
-    private function loadAccounts(): array
+    private function loadAccounts(): \Illuminate\Support\Collection
     {
-        if (! file_exists($this->accountsPath)) return [];
-        return json_decode(file_get_contents($this->accountsPath), true) ?? [];
+        // Single source of truth: database
+        return \App\Models\PangkalanSession::where('is_active', true)
+            ->whereNotNull('password_encrypted')
+            ->get()
+            ->map(function ($s) {
+                try {
+                    $pin = \Illuminate\Support\Facades\Crypt::decryptString($s->password_encrypted);
+                } catch (\Exception $e) {
+                    return null;
+                }
+                return [
+                    'label' => $s->label,
+                    'email' => $s->username,
+                    'pin'   => $pin,
+                ];
+            })->filter()->values();
     }
 }

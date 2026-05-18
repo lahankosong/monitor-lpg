@@ -106,52 +106,46 @@ class DatabaseController extends Controller
         $request->validate([
             'no_reg'         => 'required|string|max:20|unique:pangkalans,no_reg',
             'nama_pangkalan' => 'required|string|max:100',
-            'nama_pemilik'   => 'nullable|string|max:100',
-            'nik_pemilik'    => 'nullable|string|max:20',
             'alamat'         => 'nullable|string|max:255',
-            'alamat_pemilik' => 'nullable|string|max:255',
             'telepon'        => 'nullable|string|max:20',
-            'tipe'           => 'in:mandiri,kerjasama',
-            'alokasi_per_bulan' => 'nullable|integer|min:0',
-            'latitude'       => 'nullable|numeric|between:-90,90',
-            'longitude'      => 'nullable|numeric|between:-180,180',
+            'tipe'           => 'nullable|in:kerjasama,mandiri',
             'map_email'      => 'nullable|string|max:100',
-            'map_pin'        => 'nullable|string|min:4',
         ]);
 
-        $data = $request->except(['map_pin','_token']);
+        $pangkalan = Pangkalan::create($request->except('map_pin'));
         if ($request->filled('map_pin')) {
-            $data['map_pin_encrypted'] = \Illuminate\Support\Facades\Crypt::encryptString($request->map_pin);
+            $pangkalan->map_pin = $request->map_pin;
+            $pangkalan->save();
         }
-        unset($data['map_pin']);
 
-        Pangkalan::create($data);
         return back()->with('success', "Pangkalan '{$request->nama_pangkalan}' berhasil ditambahkan.");
     }
 
     public function pangkalanUpdate(Request $request, Pangkalan $pangkalan)
     {
         $request->validate([
-            'no_reg'         => "required|string|max:20|unique:pangkalans,no_reg,{$pangkalan->id}",
-            'nama_pangkalan' => 'required|string|max:100',
-            'nama_pemilik'   => 'nullable|string|max:100',
-            'nik_pemilik'    => 'nullable|string|max:20',
-            'alamat'         => 'nullable|string|max:255',
-            'alamat_pemilik' => 'nullable|string|max:255',
-            'telepon'        => 'nullable|string|max:20',
-            'tipe'           => 'in:mandiri,kerjasama',
-            'alokasi_per_bulan' => 'nullable|integer|min:0',
-            'latitude'       => 'nullable|numeric|between:-90,90',
-            'longitude'      => 'nullable|numeric|between:-180,180',
-            'map_email'      => 'nullable|string|max:100',
-            'map_pin'        => 'nullable|string|min:4',
+            'no_reg'          => "required|string|max:20|unique:pangkalans,no_reg,{$pangkalan->id}",
+            'nama_pangkalan'  => 'required|string|max:100',
+            'alamat'          => 'nullable|string|max:255',
+            'telepon'         => 'nullable|string|max:20',
+            'tipe'            => 'nullable|in:kerjasama,mandiri',
+            'lat'             => 'nullable|numeric',
+            'lng'             => 'nullable|numeric',
+            'map_email'       => 'nullable|string|max:100',
+            // Koordinat & kerjasama
+            'jumlah_tabung_kerjasama' => 'nullable|integer',
+            'harga_sewa_tabung'       => 'nullable|integer',
+            'tgl_mulai_kerjasama'     => 'nullable|date',
+            'jangka_kerjasama'        => 'nullable|integer',
+            'no_perjanjian'           => 'nullable|string|max:50',
         ]);
 
-        $data = $request->except(['map_pin','_token','_method']);
+        // Handle PIN MAP — hanya update jika diisi
+        $data = $request->except(['map_pin']);
         if ($request->filled('map_pin')) {
-            $data['map_pin_encrypted'] = \Illuminate\Support\Facades\Crypt::encryptString($request->map_pin);
+            $pangkalan->map_pin = $request->map_pin; // accessor di model yg encrypt
+            $pangkalan->save();
         }
-        unset($data['map_pin']);
 
         $pangkalan->update($data);
         return back()->with('success', "Pangkalan '{$pangkalan->nama_pangkalan}' berhasil diperbarui.");
@@ -163,13 +157,14 @@ class DatabaseController extends Controller
         return back()->with('success', "Pangkalan berhasil dihapus.");
     }
 
-    public function pangkalanPerjanjian(Pangkalan $pangkalan)
+    /** Tampilkan PIN MAP via AJAX (untuk toggle show/hide) */
+    public function pangkalanShowPin(Pangkalan $pangkalan)
     {
-        if ($pangkalan->tipe !== 'kerjasama') {
-            return back()->withErrors(['msg' => 'Surat perjanjian hanya untuk pangkalan tipe kerjasama.']);
+        $pin = $pangkalan->map_pin; // accessor decrypt otomatis
+        if (!$pin) {
+            return response()->json(['success' => false, 'message' => 'PIN belum diset']);
         }
-        $agen = Agen::profil();
-        return view('agen.database.pangkalan-perjanjian', compact('pangkalan', 'agen'));
+        return response()->json(['success' => true, 'pin' => $pin]);
     }
 
     public function pangkalanToggle(Pangkalan $pangkalan)
@@ -207,7 +202,7 @@ class DatabaseController extends Controller
         $karyawans = Karyawan::when($search, fn($q) => $q->where('nama_karyawan','like',"%$search%"))
                              ->when($role, fn($q) => $q->where('role', $role))
                              ->orderBy('nama_karyawan')->paginate(20)->withQueryString();
-        $roles = \App\Models\Karyawan::ROLES;
+        $roles = ['owner','direktur','manager','admin','driver'];
         return view('agen.database.karyawan', compact('karyawans', 'search', 'role', 'roles'));
     }
 
@@ -215,7 +210,7 @@ class DatabaseController extends Controller
     {
         $request->validate([
             'nama_karyawan' => 'required|string|max:100',
-            'role'          => 'required|in:owner,direktur,manager,admin,driver,co-driver,security',
+            'role'          => 'required|in:owner,direktur,manager,admin,driver',
             'telepon'       => 'nullable|string|max:20',
         ]);
         Karyawan::create($request->all());
@@ -226,7 +221,7 @@ class DatabaseController extends Controller
     {
         $request->validate([
             'nama_karyawan' => 'required|string|max:100',
-            'role'          => 'required|in:owner,direktur,manager,admin,driver,co-driver,security',
+            'role'          => 'required|in:owner,direktur,manager,admin,driver',
             'telepon'       => 'nullable|string|max:20',
         ]);
         $karyawan->update($request->all());
@@ -250,55 +245,34 @@ class DatabaseController extends Controller
     public function armada(Request $request)
     {
         $search  = $request->get('search', '');
-        $armadas = Armada::with(['sopir','kernet'])
+        $armadas = Armada::with('sopir')
                          ->when($search, fn($q) => $q->where('no_polisi','like',"%$search%"))
                          ->orderBy('no_polisi')->paginate(15)->withQueryString();
-        $drivers = Karyawan::aktif()->whereIn('role',['driver'])->orderBy('nama_karyawan')->get();
-        $kernets = Karyawan::aktif()->whereIn('role',['co-driver'])->orderBy('nama_karyawan')->get();
-        // Kumpulkan semua notifikasi STNK dari semua armada aktif
-        $notifikasiStnk = Armada::aktif()->get()
-            ->map(fn($a) => $a->notifikasi_stnk)
-            ->filter()->flatten(1);
-        return view('agen.database.armada', compact('armadas','search','drivers','kernets','notifikasiStnk'));
+        $drivers = Karyawan::driver()->aktif()->orderBy('nama_karyawan')->get();
+        return view('agen.database.armada', compact('armadas', 'search', 'drivers'));
     }
 
     public function armadaStore(Request $request)
     {
         $request->validate([
-            'no_polisi'       => 'required|string|max:20|unique:armadas,no_polisi',
-            'jenis'           => 'nullable|string|max:50',
-            'no_rangka'       => 'nullable|string|max:50',
-            'no_mesin'        => 'nullable|string|max:50',
-            'tahun_pembuatan' => 'nullable|integer|min:1990|max:'.(date('Y')+1),
-            'sopir_id'        => 'nullable|exists:karyawans,id',
-            'kernet_id'       => 'nullable|exists:karyawans,id',
-            'stnk_tahunan'    => 'nullable|date',
-            'stnk_5tahunan'   => 'nullable|date',
+            'no_polisi' => 'required|string|max:20|unique:armadas,no_polisi',
+            'jenis'     => 'nullable|string|max:50',
+            'kapasitas' => 'nullable|integer|min:0',
+            'sopir_id'  => 'nullable|exists:karyawans,id',
         ]);
-        Armada::create($request->only([
-            'no_polisi','jenis','no_rangka','no_mesin','tahun_pembuatan',
-            'sopir_id','kernet_id','stnk_tahunan','stnk_5tahunan',
-        ]));
+        Armada::create($request->all());
         return back()->with('success', "Armada '{$request->no_polisi}' berhasil ditambahkan.");
     }
 
     public function armadaUpdate(Request $request, Armada $armada)
     {
         $request->validate([
-            'no_polisi'       => "required|string|max:20|unique:armadas,no_polisi,{$armada->id}",
-            'jenis'           => 'nullable|string|max:50',
-            'no_rangka'       => 'nullable|string|max:50',
-            'no_mesin'        => 'nullable|string|max:50',
-            'tahun_pembuatan' => 'nullable|integer|min:1990',
-            'sopir_id'        => 'nullable|exists:karyawans,id',
-            'kernet_id'       => 'nullable|exists:karyawans,id',
-            'stnk_tahunan'    => 'nullable|date',
-            'stnk_5tahunan'   => 'nullable|date',
+            'no_polisi' => "required|string|max:20|unique:armadas,no_polisi,{$armada->id}",
+            'jenis'     => 'nullable|string|max:50',
+            'kapasitas' => 'nullable|integer|min:0',
+            'sopir_id'  => 'nullable|exists:karyawans,id',
         ]);
-        $armada->update($request->only([
-            'no_polisi','jenis','no_rangka','no_mesin','tahun_pembuatan',
-            'sopir_id','kernet_id','stnk_tahunan','stnk_5tahunan',
-        ]));
+        $armada->update($request->all());
         return back()->with('success', "Armada '{$armada->no_polisi}' berhasil diperbarui.");
     }
 

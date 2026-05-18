@@ -12,6 +12,8 @@ use App\Http\Controllers\Agen\PangkalanExportImportController;
 use App\Http\Controllers\Agen\DistribusiController;
 use App\Http\Controllers\Agen\BrimolaController;
 use App\Http\Controllers\Agen\AuditBrimolaController;
+use App\Http\Controllers\Agen\AkuntansiController;
+use App\Http\Controllers\Agen\BukuBesarController;
 use App\Http\Controllers\Agen\DriverController;
 use App\Http\Controllers\TokenCaptureController;
 use App\Http\Controllers\TokenInputController;
@@ -19,7 +21,17 @@ use App\Http\Controllers\BatchScrapeController;
 use App\Http\Controllers\AkunPangkalanController;
 use App\Http\Controllers\StopBatchController;
 use App\Http\Controllers\LoginController;
+use App\Http\Controllers\GithubActionsController;
 use Illuminate\Support\Facades\Route;
+
+// ── API untuk GitHub Actions (tanpa auth session, pakai X-API-Key) ────
+// withoutMiddleware CSRF karena request dari GitHub Actions bukan browser
+Route::prefix('api/github-actions')
+    ->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class])
+    ->group(function () {
+        Route::get('/accounts', [GithubActionsController::class, 'getAccounts']);
+        Route::post('/tokens',  [GithubActionsController::class, 'receiveTokens']);
+    });
 
 // ── Auth ─────────────────────────────────────────────────────────
 Route::get('/login',  [LoginController::class, 'showLogin'])->name('login');
@@ -79,6 +91,7 @@ Route::prefix('dashboard')->name('dashboard.')->middleware(['auth'])->group(func
         Route::get('/pangkalan/template',            [PangkalanExportImportController::class, 'template'])->name('pangkalan.template');
         Route::put('/pangkalan/{pangkalan}',         [DatabaseController::class, 'pangkalanUpdate'])->name('pangkalan.update');
         Route::delete('/pangkalan/{pangkalan}',      [DatabaseController::class, 'pangkalanDestroy'])->name('pangkalan.destroy');
+        Route::get('/pangkalan/{pangkalan}/pin',         [DatabaseController::class, 'pangkalanShowPin'])->name('pangkalan.show-pin');
         Route::patch('/pangkalan/{pangkalan}/toggle',[DatabaseController::class, 'pangkalanToggle'])->name('pangkalan.toggle');
         Route::get('/pangkalan/{pangkalan}/perjanjian', [DatabaseController::class, 'pangkalanPerjanjian'])->name('pangkalan.perjanjian');
 
@@ -134,7 +147,6 @@ Route::prefix('dashboard')->name('dashboard.')->middleware(['auth'])->group(func
         // BRImola
         Route::prefix('brimola')->name('brimola.')->group(function () {
             Route::get('/',        [BrimolaController::class, 'index'])->name('index');
-            Route::post('/',       [BrimolaController::class, 'store'])->name('store');
             Route::post('/import', [BrimolaController::class, 'import'])->name('import');
             Route::post('/match',  [BrimolaController::class, 'match'])->name('match');
             Route::post('/verify', [BrimolaController::class, 'verify'])->name('verify');
@@ -146,10 +158,39 @@ Route::prefix('dashboard')->name('dashboard.')->middleware(['auth'])->group(func
                 Route::get('/pangkalan/{id}',                  [AuditBrimolaController::class, 'detail'])->name('detail');
                 Route::post('/realokasi-semua',                [AuditBrimolaController::class, 'realokasiSemua'])->name('realokasi-semua');
                 Route::post('/realokasi-pangkalan/{id}',       [AuditBrimolaController::class, 'realokasiPangkalan'])->name('realokasi-pangkalan');
-                Route::post('/pangkalan/{id}/verify',          [AuditBrimolaController::class, 'verify'])->name('verify');
-                Route::post('/pangkalan/{id}/verify-all',      [AuditBrimolaController::class, 'verifyAll'])->name('verify-all');
             });
         });
+        // Piutang Kerjasama
+        Route::prefix('piutang')->name('piutang.')->group(function () {
+            Route::get('/',             [AkuntansiController::class, 'piutang'])->name('index');
+            Route::post('/generate',    [AkuntansiController::class, 'generatePiutang'])->name('generate');
+            Route::post('/{id}/bayar',  [AkuntansiController::class, 'bayarPiutang'])->name('bayar');
+        });
+
+        // Kas Kecil
+        Route::prefix('kas')->name('kas.')->group(function () {
+            Route::get('/',      [AkuntansiController::class, 'kas'])->name('index');
+            Route::post('/',     [AkuntansiController::class, 'kasStore'])->name('store');
+            Route::delete('/{id}', [AkuntansiController::class, 'kasDestroy'])->name('destroy');
+        });
+
+        // Dashboard Akuntansi
+        Route::get('/dashboard', [AkuntansiController::class, 'dashboard'])->name('dashboard');
+
+        // Buku Besar & Laporan Keuangan
+        Route::prefix('buku-besar')->name('buku-besar.')->group(function () {
+            Route::get('/',              [BukuBesarController::class, 'index'])->name('index');
+            Route::get('/laba-rugi',     [BukuBesarController::class, 'labaRugi'])->name('laba-rugi');
+            Route::get('/neraca',        [BukuBesarController::class, 'neraca'])->name('neraca');
+            Route::get('/jurnal',        [BukuBesarController::class, 'jurnalIndex'])->name('jurnal');
+            Route::post('/jurnal',       [BukuBesarController::class, 'jurnalStore'])->name('jurnal-store');
+            Route::post('/modal',        [BukuBesarController::class, 'modalStore'])->name('modal-store');
+            Route::get('/export-pdf',    [BukuBesarController::class, 'exportPdf'])->name('export-pdf');
+            Route::get('/export-excel',  [BukuBesarController::class, 'exportExcel'])->name('export-excel');
+        });
+
+        // Shortcut route untuk neraca (tanpa prefix buku-besar)
+        Route::get('/neraca', [BukuBesarController::class, 'neraca'])->name('neraca');
     }); // ── end agen/akuntansi ──
 
     // ── Agen — Distribusi ────────────────────────────────────────

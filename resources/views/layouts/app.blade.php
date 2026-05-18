@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="id" data-theme="normal">
+<html lang="id" data-theme="cerah">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9,62 +9,105 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <style>
 /* ── Theme Variables ─────────────────────────────────── */
-:root {
-  --bg:       #F8FAFC;
-  --surface:  #FFFFFF;
-  --border:   #E2E8F0;
-  --nav-bg:   #FFFFFF;
-  --nav-text: #374151;
-  --nav-active:#2563EB;
-  --accent:   #2563EB;
-  --text:     #111827;
-  --muted:    #6B7280;
-  --sidebar:  #1E293B;
-  --sidebar-text: #CBD5E1;
-  --sidebar-active: #3B82F6;
-  --radius:   10px;
+/* ── TEMA CERAH: Biru Langit + Orange + Hijau Sage ──── */
+:root,
+[data-theme="cerah"] {
+  --bg:               #F0F7FF;        /* biru langit sangat muda */
+  --surface:          #FFFFFF;
+  --surface-alt:      #E8F4FD;        /* card sekunder biru muda */
+  --border:           #BAD4EF;        /* biru langit medium */
+  --nav-bg:           #FFFFFF;
+  --nav-text:         #334155;
+  --nav-active:       #0EA5E9;        /* biru langit cerah */
+  --accent:           #0EA5E9;        /* biru langit — CTA utama */
+  --accent-2:         #F97316;        /* orange — highlight penting */
+  --accent-3:         #6B9E6E;        /* hijau sage — status positif */
+  --text:             #0F2942;        /* biru tua gelap — teks utama */
+  --muted:            #5A7A9A;        /* biru abu — teks sekunder */
+  --sidebar:          #0C2340;        /* navy gelap — sidebar selalu dark */
+  --sidebar-text:     #A8C5E0;
+  --sidebar-active:   #38BDF8;        /* biru langit terang */
+  --sidebar-accent:   #F97316;        /* orange untuk badge/notif */
+  --radius:           8px;
+  --stat-positive:    #6B9E6E;        /* hijau sage */
+  --stat-negative:    #EF4444;
+  --stat-warning:     #F97316;        /* orange */
+  --stat-info:        #0EA5E9;        /* biru langit */
 }
+
+/* ── TEMA GELAP: Navy + Biru Dingin ─────────────────── */
 [data-theme="dark"] {
-  --bg:       #0F172A;
-  --surface:  #1E293B;
-  --border:   #334155;
-  --nav-bg:   #1E293B;
-  --nav-text: #94A3B8;
-  --nav-active:#60A5FA;
-  --accent:   #3B82F6;
-  --text:     #F1F5F9;
-  --muted:    #64748B;
-  --sidebar:  #0F172A;
-  --sidebar-text: #94A3B8;
-  --sidebar-active: #60A5FA;
+  --bg:               #070F1C;        /* hitam navy dalam */
+  --surface:          #0D1B2E;        /* navy gelap */
+  --surface-alt:      #112338;        /* sedikit lebih terang */
+  --border:           #1E3A5F;        /* biru tua */
+  --nav-bg:           #0D1B2E;
+  --nav-text:         #7CA4C4;
+  --nav-active:       #38BDF8;
+  --accent:           #0EA5E9;
+  --accent-2:         #FB923C;        /* orange lebih terang di dark */
+  --accent-3:         #7DB87F;        /* sage lebih terang */
+  --text:             #E2F0FB;        /* biru sangat muda */
+  --muted:            #4A7090;
+  --sidebar:          #050D18;        /* hitam navy hampir pekat */
+  --sidebar-text:     #6B9EC0;
+  --sidebar-active:   #38BDF8;
+  --sidebar-accent:   #FB923C;
+  --radius:           8px;
+  --stat-positive:    #7DB87F;
+  --stat-negative:    #F87171;
+  --stat-warning:     #FB923C;
+  --stat-info:        #38BDF8;
 }
+
+/* ── TEMA CLASSIC: Hijau Alam (tetap) ───────────────── */
 [data-theme="classic"] {
-  --bg:       #F5F0E8;
-  --surface:  #FDF8F0;
-  --border:   #D4B896;
-  --nav-bg:   #2C4A2E;
-  --nav-text: #D4E8D5;
-  --nav-active:#FFD700;
-  --accent:   #2C4A2E;
-  --text:     #1A1A1A;
-  --muted:    #6B5E4E;
-  --sidebar:  #2C4A2E;
-  --sidebar-text: #B8D4B9;
-  --sidebar-active: #FFD700;
+  --bg:               #F5F0E8;
+  --surface:          #FDF8F0;
+  --surface-alt:      #EDE8DC;
+  --border:           #D4B896;
+  --nav-bg:           #2C4A2E;
+  --nav-text:         #D4E8D5;
+  --nav-active:       #FFD700;
+  --accent:           #2C4A2E;
+  --accent-2:         #D4880A;
+  --accent-3:         #4A7A4C;
+  --text:             #1A1A1A;
+  --muted:            #6B5E4E;
+  --sidebar:          #1E3420;
+  --sidebar-text:     #B8D4B9;
+  --sidebar-active:   #FFD700;
+  --sidebar-accent:   #FFD700;
+  --radius:           8px;
+  --stat-positive:    #4A7A4C;
+  --stat-negative:    #C0392B;
+  --stat-warning:     #D4880A;
+  --stat-info:        #2C4A2E;
 }
+
+/* ── TEMA MODERN: Indigo-Ungu (tetap) ───────────────── */
 [data-theme="modern"] {
-  --bg:       #F0F4FF;
-  --surface:  #FFFFFF;
-  --border:   #C7D2FE;
-  --nav-bg:   linear-gradient(135deg,#667EEA,#764BA2);
-  --nav-text: rgba(255,255,255,0.85);
-  --nav-active:#FFFFFF;
-  --accent:   #667EEA;
-  --text:     #1E1B4B;
-  --muted:    #6366F1;
-  --sidebar:  #4F46E5;
-  --sidebar-text: rgba(255,255,255,0.75);
-  --sidebar-active: #FFFFFF;
+  --bg:               #F0F4FF;
+  --surface:          #FFFFFF;
+  --surface-alt:      #E8ECFF;
+  --border:           #C7D2FE;
+  --nav-bg:           linear-gradient(135deg,#667EEA,#764BA2);
+  --nav-text:         rgba(255,255,255,0.85);
+  --nav-active:       #FFFFFF;
+  --accent:           #667EEA;
+  --accent-2:         #F59E0B;
+  --accent-3:         #10B981;
+  --text:             #1E1B4B;
+  --muted:            #6366F1;
+  --sidebar:          #312E81;
+  --sidebar-text:     rgba(255,255,255,0.65);
+  --sidebar-active:   #FFFFFF;
+  --sidebar-accent:   #F59E0B;
+  --radius:           8px;
+  --stat-positive:    #10B981;
+  --stat-negative:    #EF4444;
+  --stat-warning:     #F59E0B;
+  --stat-info:        #667EEA;
 }
 
 /* ── Base ────────────────────────────────────────────── */
@@ -494,8 +537,18 @@ body {
 
     {{-- Theme switcher --}}
     <div class="theme-pills">
-      <button class="theme-pill active" data-t="normal">Normal</button>
-      <button class="theme-pill" data-t="dark">Dark</button>
+      <button class="theme-pill active" data-t="cerah" style="display:flex;align-items:center;gap:4px">
+        <span style="display:inline-flex;gap:2px;align-items:center">
+          <span style="width:6px;height:6px;border-radius:50%;background:#0EA5E9;display:inline-block"></span>
+          <span style="width:6px;height:6px;border-radius:50%;background:#F97316;display:inline-block"></span>
+          <span style="width:6px;height:6px;border-radius:50%;background:#6B9E6E;display:inline-block"></span>
+        </span>
+        Cerah
+      </button>
+      <button class="theme-pill" data-t="dark" style="display:flex;align-items:center;gap:4px">
+        <span style="width:6px;height:6px;border-radius:50%;background:#0EA5E9;display:inline-block"></span>
+        Gelap
+      </button>
       <button class="theme-pill" data-t="classic">Classic</button>
       <button class="theme-pill" data-t="modern">Modern</button>
     </div>
@@ -622,7 +675,10 @@ body {
 
 <script>
 // ── Theme ─────────────────────────────────────────────
-const savedTheme = localStorage.getItem('lpg-theme') || 'normal';
+const savedTheme = (() => {
+  const t = localStorage.getItem('lpg-theme') || 'cerah';
+  return t === 'normal' ? 'cerah' : t; // migrasi tema lama
+})();
 document.documentElement.setAttribute('data-theme', savedTheme);
 document.querySelectorAll('.theme-pill').forEach(p => {
   p.classList.toggle('active', p.dataset.t === savedTheme);

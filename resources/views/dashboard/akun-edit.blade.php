@@ -3,83 +3,89 @@
 
 @section('content')
 
-<div class="max-w-lg mx-auto">
-  <div class="mb-5">
+<div style="max-width:520px;margin:0 auto">
+  <div style="margin-bottom:16px">
     <a href="{{ route('dashboard.akun.index') }}"
-       class="text-xs text-gray-400 hover:text-gray-700">← Kembali ke daftar akun</a>
+       style="font-size:12px;color:var(--muted);text-decoration:none">← Kembali ke daftar akun</a>
   </div>
 
-  <div class="bg-white rounded-xl border border-gray-200 p-6">
-    <h1 class="font-semibold text-base mb-1">Edit Akun Pangkalan</h1>
-    <p class="text-xs text-gray-400 mb-5">
-      Kosongkan kolom password jika tidak ingin mengubah password.
+  <div class="card" style="padding:24px">
+    <h1 style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:4px">Edit Akun Pangkalan</h1>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:20px">
+      Kosongkan kolom password jika tidak ingin mengubah.
     </p>
+
+    @if($errors->any())
+    <div style="background:#FEE2E2;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:13px;color:#991B1B">
+      @foreach($errors->all() as $e) ✗ {{ $e }}<br> @endforeach
+    </div>
+    @endif
 
     <form action="{{ route('dashboard.akun.update', $akun->id) }}" method="POST">
       @csrf @method('PUT')
 
-      <div class="space-y-4">
+      <div style="display:flex;flex-direction:column;gap:14px">
+
         <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1">Nama Pangkalan *</label>
-          <input name="label" required value="{{ old('label', $akun->label) }}"
-                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm
-                        focus:outline-none focus:border-blue-500
-                        @error('label') border-red-400 @enderror">
-          @error('label')<p class="text-xs text-red-500 mt-1">{{ $message }}</p>@enderror
+          <label class="flabel">Nama Pangkalan *</label>
+          <input name="label" required value="{{ old('label', $akun->label) }}" class="finput">
         </div>
 
         <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1">Email / No HP *</label>
+          <label class="flabel">Email / No HP *</label>
           <input name="username" required type="text"
                  value="{{ old('username', $akun->username) }}"
                  placeholder="email@gmail.com atau 081234567890"
-                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm
-                        focus:outline-none focus:border-blue-500
-                        @error('username') border-red-400 @enderror">
-          @error('username')<p class="text-xs text-red-500 mt-1">{{ $message }}</p>@enderror
+                 class="finput">
         </div>
 
         <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1">
+          <label class="flabel">
             Password / PIN
-            <span class="text-gray-400 font-normal">(kosongkan jika tidak diubah)</span>
+            <span style="font-weight:400;color:var(--muted)">(kosongkan jika tidak diubah)</span>
           </label>
-          <div class="flex gap-2">
+          <div style="display:flex;gap:8px">
             <input name="password" type="password" id="passwordInput"
-                   class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm
-                          focus:outline-none focus:border-blue-500"
-                   placeholder="••••••••">
-            <button type="button" onclick="lihatPassword({{ ->id }})"
-                    class="border border-gray-300 rounded-lg px-3 py-2 text-xs text-gray-500 hover:bg-gray-50 whitespace-nowrap">
+                   class="finput" placeholder="••••••••" style="flex:1">
+            <button type="button" onclick="lihatPassword({{ $akun->id }})"
+                    style="border:1px solid var(--border);background:var(--surface);color:var(--muted);
+                           border-radius:8px;padding:8px 14px;font-size:12px;cursor:pointer;
+                           white-space:nowrap;transition:all .15s"
+                    onmouseover="this.style.color='var(--text)'"
+                    onmouseout="this.style.color='var(--muted)'">
               Lihat
             </button>
           </div>
-          <p id="passwordInfo" class="text-xs text-gray-400 mt-1 hidden"></p>
+          <p id="passwordInfo" style="font-size:11px;color:var(--muted);margin-top:4px;display:none"></p>
         </div>
 
-        <div class="flex items-center gap-2">
+        <div style="display:flex;align-items:center;gap:8px">
           <input type="hidden" name="is_active" value="0">
           <input type="checkbox" name="is_active" id="is_active" value="1"
                  {{ $akun->is_active ? 'checked' : '' }}
-                 class="rounded border-gray-300 text-blue-600">
-          <label for="is_active" class="text-sm text-gray-700">Akun aktif (ikut dalam batch scraping)</label>
+                 style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer">
+          <label for="is_active" style="font-size:13px;color:var(--text);cursor:pointer">
+            Akun aktif (ikut dalam batch scraping)
+          </label>
         </div>
 
         @if($akun->registration_id)
-        <div class="bg-gray-50 rounded-lg p-3 text-xs text-gray-500">
-          <p>Registration ID: <span class="font-mono font-medium">{{ $akun->registration_id }}</span></p>
-          <p class="mt-0.5">Pangkalan ID: <span class="font-mono">{{ $akun->pangkalan_id }}</span></p>
+        <div style="background:var(--bg);border-radius:8px;padding:10px 14px;font-size:11px;color:var(--muted)">
+          <p>Registration ID: <span style="font-family:monospace;color:var(--text)">{{ $akun->registration_id }}</span></p>
+          <p style="margin-top:3px">Pangkalan ID: <span style="font-family:monospace">{{ $akun->pangkalan_id }}</span></p>
         </div>
         @endif
       </div>
 
-      <div class="flex gap-2 mt-5">
+      <div style="display:flex;gap:8px;margin-top:20px">
         <button type="submit"
-                class="bg-blue-600 text-white rounded-lg px-5 py-2 text-sm hover:bg-blue-700">
+                style="background:var(--accent);color:#151F28;border:none;border-radius:8px;
+                       padding:9px 20px;font-size:13px;font-weight:600;cursor:pointer">
           Simpan Perubahan
         </button>
         <a href="{{ route('dashboard.akun.index') }}"
-           class="border border-gray-300 rounded-lg px-4 py-2 text-sm hover:bg-gray-50">
+           style="border:1px solid var(--border);background:var(--surface);color:var(--text);
+                  border-radius:8px;padding:9px 16px;font-size:13px;text-decoration:none">
           Batal
         </a>
       </div>
@@ -91,24 +97,31 @@
 <script>
 async function lihatPassword(id) {
   const res  = await fetch(`/dashboard/akun/${id}/password`, {
-    headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]').content, 'Accept': 'application/json' }
+    headers: {
+      'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]').content,
+      'Accept': 'application/json'
+    }
   });
   const data = await res.json();
-  const info = document.getElementById('passwordInfo');
+  const info  = document.getElementById('passwordInfo');
   const input = document.getElementById('passwordInput');
+
   if (data.success) {
-    info.textContent = 'Password tersimpan: ' + data.password;
-    info.classList.remove('hidden');
     input.value = data.password;
     input.type  = 'text';
-    setTimeout(() => { input.type = 'password'; info.classList.add('hidden'); }, 8000);
+    info.textContent = '⚠ Password ditampilkan — auto-sembunyikan 8 detik';
+    info.style.color = '#F59E0B';
+    info.style.display = 'block';
+    setTimeout(() => {
+      input.type = 'password';
+      info.style.display = 'none';
+    }, 8000);
   } else {
     info.textContent = 'Password tidak tersedia — perlu diisi ulang';
-    info.classList.remove('hidden');
-    info.style.color = '#ef4444';
+    info.style.color = '#DC2626';
+    info.style.display = 'block';
   }
 }
 </script>
 @endpush
-
 @endsection

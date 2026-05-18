@@ -1,173 +1,151 @@
 <?php
 
-namespace App\Http\Controllers\Api;
+namespace App\Http\Controllers;
 
-use App\Http\Controllers\Controller;
+use App\Models\PangkalanSession;
 use App\Models\PangkalanToken;
-use App\Models\Pangkalan;
-use App\Jobs\ScrapeTransactionsJob;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Log;
 
+/**
+ * API khusus untuk GitHub Actions scraper.
+ * Autentikasi via X-API-Key header (bukan session Laravel).
+ */
 class GithubActionsController extends Controller
 {
-    /**
-     * Endpoint untuk menerima batch token dari GitHub Actions.
-     * POST /api/github-actions/tokens
-     *
-     * Header: X-API-Key: {API_KEY dari .env}
-     * Body: {
-     *   "tokens": [
-     *     {"email": "...", "token": "...", "pangkalan_id": "...", "store_name": "..."},
-     *     ...
-     *   ],
-     *   "scrape_after": true,
-     *   "date_from": "2026-05-01",
-     *   "date_to": "2026-05-13"
-     * }
-     */
-    public function receiveTokens(Request $request)
+    private function validateKey(Request $request): bool
     {
-        // Validasi API Key
-        $apiKey = $request->header('X-API-Key');
-        $validKey = config('services.github_actions.api_key');
+        $key = config('app.github_actions_key',
+               env('GITHUB_ACTIONS_KEY', ''));
+        return $key && $request->header('X-API-Key') === $key;
+    }
 
-        if (!$validKey || $apiKey !== $validKey) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Invalid API Key'
-            ], 401);
+    // ─────────────────────────────────────────────────────────────
+    // GET /api/github-actions/accounts
+    // Kirim daftar akun aktif ke scraper (menggantikan accounts.json)
+    // ─────────────────────────────────────────────────────────────
+    public function getAccounts(Request $request)
+    {
+        if (!$this->validateKey($request)) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
         }
 
-        $tokens = $request->input('tokens', []);
-        $scrapeAfter = $request->boolean('scrape_after', true);
-        $dateFrom = $request->input('date_from', now()->toDateString());
-        $dateTo = $request->input('date_to', now()->toDateString());
+        $sessions = PangkalanSession::where('is_active', true)
+            ->whereNotNull('password_encrypted')
+            ->get();
 
-        if (empty($tokens)) {
-            return response()->json([
-                'success' => false,
-                'message' => 'No tokens provided'
-            ], 400);
-        }
-
-        $results = [];
-        $savedCount = 0;
-        $errorCount = 0;
-
-        foreach ($tokens as $item) {
-            $token = trim($item['token'] ?? '');
-            $pangkalanId = $item['pangkalan_id'] ?? null;
-            $email = $item['email'] ?? null;
-            $storeName = $item['store_name'] ?? null;
-
-            if (!$token || !$pangkalanId) {
-                $errorCount++;
-                $results[] = [
-                    'email' => $email,
-                    'success' => false,
-                    'message' => 'Token atau pangkalan_id kosong'
-                ];
-                continue;
+        $accounts = $sessions->map(function ($s) {
+            try {
+                $pin = Crypt::decryptString($s->password_encrypted);
+            } catch (\Exception $e) {
+                // Skip akun yang passwordnya tidak bisa didekripsi
+                Log::warning("[GithubActions] Gagal dekripsi password: {$s->label}");
+                return null;
             }
 
-            try {
-                // Decode token untuk dapat expiry
-                $expiredAt = null;
-                $issuedAt = null;
-                try {
-                    $parts = explode('.', $token);
-                    $payload = json_decode(base64_decode(
-                        str_pad(strtr($parts[1], '-_', '+/'), strlen($parts[1]) + (4 - strlen($parts[1]) % 4) % 4, '=')
-                    ), true);
-                    $expiredAt = isset($payload['exp']) ? Carbon::createFromTimestamp($payload['exp']) : null;
-                    $issuedAt = isset($payload['iat']) ? Carbon::createFromTimestamp($payload['iat']) : null;
-                } catch (\Exception $e) {
-                    // Ignore decode error, continue with token
-                }
+            return [
+                'label' => $s->label,
+                'email' => $s->username,
+                'pin'   => $pin,
+            ];
+        })->filter()->values();
 
-                // Simpan token
-                $record = PangkalanToken::updateOrCreate(
+        Log::info("[GithubActions] Mengirim {$accounts->count()} akun ke scraper");
+
+        return response()->json([
+            'success'  => true,
+            'total'    => $accounts->count(),
+            'accounts' => $accounts,
+        ]);
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // POST /api/github-actions/tokens
+    // Terima batch token dari scraper → simpan ke DB → trigger scrape
+    // ─────────────────────────────────────────────────────────────
+    public function receiveTokens(Request $request)
+    {
+        if (!$this->validateKey($request)) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
+        }
+
+        $request->validate([
+            'tokens'       => 'required|array',
+            'tokens.*.email'  => 'required|string',
+            'tokens.*.token'  => 'required|string',
+            'scrape_after' => 'boolean',
+            'date_from'    => 'nullable|date',
+            'date_to'      => 'nullable|date',
+        ]);
+
+        $saved = 0;
+        foreach ($request->tokens as $t) {
+            try {
+                // Decode JWT untuk dapat expire time
+                $parts   = explode('.', $t['token']);
+                $payload = json_decode(base64_decode(
+                    str_pad(strtr($parts[1] ?? '', '-_', '+/'),
+                    strlen($parts[1] ?? '') + (4 - strlen($parts[1] ?? '') % 4) % 4, '=')
+                ), true) ?? [];
+
+                $pangkalanId = $t['pangkalan_id'] ?? ($payload['sub'] ?? null);
+                $expiresAt   = isset($payload['exp'])
+                    ? Carbon::createFromTimestamp($payload['exp'])
+                    : now()->addHours(12);
+
+                if (!$pangkalanId) continue;
+
+                PangkalanToken::updateOrCreate(
                     ['pangkalan_id' => $pangkalanId],
                     [
-                        'token' => $token,
-                        'label' => $storeName ?: $email,
-                        'token_issued_at' => $issuedAt ?? now(),
-                        'token_expires_at' => $expiredAt,
-                        'is_active' => true,
+                        'label'            => $t['store_name'] ?? $t['email'],
+                        'token'            => $t['token'],
+                        'token_issued_at'  => now(),
+                        'token_expires_at' => $expiresAt,
+                        'is_active'        => true,
                     ]
                 );
 
-                // Update nama pangkalan di tabel pangkalans jika ada
-                if ($storeName) {
-                    Pangkalan::where('map_email', $email)->update([
-                        'nama_pangkalan' => $storeName
+                // Update pangkalan_id di session jika masih pending_
+                PangkalanSession::where('username', $t['email'])
+                    ->where('pangkalan_id', 'like', 'pending_%')
+                    ->update([
+                        'pangkalan_id' => $pangkalanId,
+                        'label'        => $t['store_name'] ?? null,
                     ]);
-                }
 
-                $scraped = false;
-                $transactionCount = 0;
-
-                // Scrape jika diminta
-                if ($scrapeAfter && $expiredAt && $expiredAt->isFuture()) {
-                    try {
-                        $job = new ScrapeTransactionsJob($dateFrom, $dateTo, $pangkalanId);
-                        $job->handle();
-                        $scraped = true;
-
-                        // Hitung transaksi yang disimpan
-                        $transactionCount = \App\Models\ScrapeLog::where('pangkalan_id', $pangkalanId)
-                            ->latest('scraped_at')
-                            ->first()?->records_saved ?? 0;
-                    } catch (\Exception $e) {
-                        Log::error("[GithubActions] Scrape error {$pangkalanId}: " . $e->getMessage());
-                    }
-                }
-
-                $savedCount++;
-                $results[] = [
-                    'email' => $email,
-                    'pangkalan_id' => $pangkalanId,
-                    'store_name' => $storeName,
-                    'success' => true,
-                    'scraped' => $scraped,
-                    'transactions' => $transactionCount,
-                ];
-
+                $saved++;
             } catch (\Exception $e) {
-                $errorCount++;
-                $results[] = [
-                    'email' => $email,
-                    'success' => false,
-                    'message' => $e->getMessage()
-                ];
-                Log::error("[GithubActions] Error saving token {$email}: " . $e->getMessage());
+                Log::warning("[GithubActions] Gagal simpan token: " . $e->getMessage());
             }
+        }
+
+        Log::info("[GithubActions] {$saved} token disimpan dari GitHub Actions");
+
+        // Trigger scrape jika diminta
+        if ($request->boolean('scrape_after') && $saved > 0) {
+            $from = $request->input('date_from', now()->toDateString());
+            $to   = $request->input('date_to',   now()->toDateString());
+
+            // Jalankan artisan command di background
+            $artisan = base_path('artisan');
+            pclose(popen(
+                sprintf('start /B php %s batch:scrape --from=%s --to=%s',
+                    escapeshellarg($artisan),
+                    escapeshellarg($from),
+                    escapeshellarg($to)
+                ), 'r'
+            ));
+
+            Log::info("[GithubActions] Batch scrape dimulai: {$from} s/d {$to}");
         }
 
         return response()->json([
             'success' => true,
-            'message' => "{$savedCount} token berhasil disimpan, {$errorCount} gagal",
-            'summary' => [
-                'total' => count($tokens),
-                'saved' => $savedCount,
-                'errors' => $errorCount,
-                'date_range' => "{$dateFrom} - {$dateTo}"
-            ],
-            'results' => $results
-        ]);
-    }
-
-    /**
-     * Health check endpoint
-     */
-    public function health()
-    {
-        return response()->json([
-            'status' => 'ok',
-            'timestamp' => now()->toISOString(),
-            'app' => config('app.name')
+            'message' => "{$saved} token disimpan.",
+            'saved'   => $saved,
         ]);
     }
 }

@@ -206,7 +206,10 @@ class ExportController extends Controller
         // Style header
         $headerStyle = [
             'font'      => ['bold' => true, 'color' => ['rgb' => 'FFFFFF']],
-            'fill'      => ['fillType' => 'solid', 'color' => ['rgb' => '1E40AF']],
+            'fill'      => [
+                'fillType'   => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
+                'startColor' => ['rgb' => '1E40AF'],   // ← 'color' tidak dikenal di v2+
+            ],
             'alignment' => ['horizontal' => 'center'],
         ];
         $titleStyle = [
@@ -249,8 +252,10 @@ class ExportController extends Controller
             // Alternating row color
             if ($i % 2 === 0) {
                 $sheet->getStyle("A{$row}:{$lastCol}{$row}")
-                    ->getFill()->setFillType('solid')
-                    ->getColor()->setRGB('F8FAFC');
+                    ->getFill()
+                    ->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
+                    ->getStartColor()       // ← getColor() dihapus di v2+
+                    ->setRGB('F8FAFC');
             }
             $row++;
         }
@@ -278,8 +283,8 @@ class ExportController extends Controller
 
     private function exportPdf(array $data, string $type, string $from, string $to)
     {
-        if (! class_exists(\Barryvdh\DomPDF\Facade\Pdf::class) &&
-            ! class_exists(\Dompdf\Dompdf::class)) {
+        // Cek lewat Dompdf core class, bukan facade (facade selalu ada jika di-register)
+        if (! class_exists(\Dompdf\Dompdf::class)) {
             return back()->withErrors(['msg' => 'DomPDF belum terinstall. Jalankan: composer require barryvdh/laravel-dompdf']);
         }
 
