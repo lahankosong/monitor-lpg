@@ -101,6 +101,30 @@ async def login_one(email: str, pin: str, label: str = "", retry: int = 0) -> di
                 pass  # lanjut meski belum idle
             await asyncio.sleep(0.5)
 
+            # Tunggu sampai ada input yang visible (max 20s, cek tiap 1s)
+            input_ready = False
+            for _ in range(20):
+                try:
+                    count = await page.evaluate("""() => {
+                        return Array.from(document.querySelectorAll('input'))
+                            .filter(el => el.offsetParent !== null).length;
+                    }""")
+                    if count > 0:
+                        input_ready = True
+                        break
+                except:
+                    pass
+                await asyncio.sleep(1)
+
+            if not input_ready:
+                log(f"  [{label}] Input tidak muncul setelah 20s, coba reload...")
+                await page.reload(wait_until="domcontentloaded", timeout=30000)
+                await asyncio.sleep(3)
+                try:
+                    await page.wait_for_load_state("networkidle", timeout=5000)
+                except:
+                    pass
+
             # Dump inputs — hanya jika DEBUG_LOGIN=1
             if os.environ.get("DEBUG_LOGIN"):
                 try:
