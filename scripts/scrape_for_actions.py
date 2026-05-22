@@ -94,27 +94,24 @@ async def login_one(email: str, pin: str, label: str = "", retry: int = 0) -> di
             except:
                 pass
 
-            # Tunggu networkidle — React SPA butuh waktu hydrate
+            # Tunggu halaman siap — cukup 5s, tidak perlu networkidle penuh
             try:
-                await page.wait_for_load_state("networkidle", timeout=20000)
+                await page.wait_for_load_state("networkidle", timeout=5000)
             except:
-                pass
-            await asyncio.sleep(3)
+                pass  # lanjut meski belum idle
+            await asyncio.sleep(0.5)
 
-            # Dump semua input ke log → tahu persis selector yang ada
-            try:
-                all_inputs = await page.evaluate("""() => {
-                    return Array.from(document.querySelectorAll('input')).map(el => ({
-                        type: el.type, name: el.name,
-                        placeholder: el.placeholder.substring(0, 40),
-                        visible: el.offsetParent !== null
-                    }));
-                }""")
-                log(f"  [{label}] Total input ditemukan: {len(all_inputs)}")
-                for inp in all_inputs[:6]:
-                    log(f"    → type={inp['type']} name='{inp['name']}' ph='{inp['placeholder']}'")
-            except Exception as e:
-                log(f"  [{label}] Dump inputs error: {e}")
+            # Dump inputs — hanya jika DEBUG_LOGIN=1
+            if os.environ.get("DEBUG_LOGIN"):
+                try:
+                    all_inputs = await page.evaluate("""() => {
+                        return Array.from(document.querySelectorAll('input')).map(el =>
+                            ({type:el.type, name:el.name, ph:el.placeholder.substring(0,30)}));
+                    }""")
+                    log(f"  [{label}] Inputs({len(all_inputs)}): " +
+                        ", ".join(f"{i['type']}/{i['ph']}" for i in all_inputs[:4]))
+                except Exception as e:
+                    log(f"  [{label}] Dump error: {e}")
 
             # ── Fill email via JS (React-safe, bypass synthetic events) ──
             log(f"  [{label}] Input email...")
@@ -152,7 +149,7 @@ async def login_one(email: str, pin: str, label: str = "", retry: int = 0) -> di
                 log(f"  [{label}] Email error: {e}")
                 raise Exception(f"Email input failed: {e}")
 
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.2)
 
             # ── Fill PIN via JS ───────────────────────────────────────
             log(f"  [{label}] Input PIN...")
@@ -190,7 +187,7 @@ async def login_one(email: str, pin: str, label: str = "", retry: int = 0) -> di
             except Exception as e:
                 log(f"  [{label}] PIN error: {e}")
 
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.2)
 
             # ── Klik tombol login via JS ──────────────────────────────
             log(f"  [{label}] Click login...")
