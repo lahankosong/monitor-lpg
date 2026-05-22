@@ -86,22 +86,88 @@ async def login_one(email: str, pin: str, label: str = "", retry: int = 0) -> di
                 wait_until="domcontentloaded",
                 timeout=60000
             )
-            
-            # Wait for form with multiple selector fallback
+            # Debug: log URL dan title
             try:
-                await page.wait_for_selector('input[type="text"], input[type="email"], input[name="email"]', timeout=10000)
-            except PlaywrightTimeoutError:
-                # Screenshot untuk debugging
+                title = await page.title()
+                log(f"  [{label}] URL: {page.url}")
+                log(f"  [{label}] Title: {title}")
+            except:
+                pass
+            
+            # Tunggu halaman benar-benar siap (network idle)
+            try:
+                await page.wait_for_load_state("networkidle", timeout=15000)
+            except:
+                pass  # lanjut meski timeout
+            await asyncio.sleep(2)
+
+            # Scroll ke atas dan klik untuk trigger lazy-load React
+            try:
+                await page.evaluate("window.scrollTo(0, 0)")
+                await page.mouse.click(640, 400)
+                await asyncio.sleep(1)
+            except:
+                pass
+
+            # Wait for form — selector lebih lengkap + timeout lebih panjang
+            FORM_SELECTORS = [
+                'input[type="text"]',
+                'input[type="email"]',
+                'input[name="email"]',
+                'input[name="username"]',
+                'input[placeholder*="email" i]',
+                'input[placeholder*="nomor" i]',
+                'input[placeholder*="hp" i]',
+                'input[placeholder*="phone" i]',
+                'input:not([type="hidden"]):not([type="password"])',
+            ]
+            form_found = False
+            for sel in FORM_SELECTORS:
+                try:
+                    await page.wait_for_selector(sel, timeout=5000)
+                    form_found = True
+                    break
+                except:
+                    continue
+
+            if not form_found:
+                # Coba reload sekali
+                log(f"  [{label}] Form tidak ditemukan, reload halaman...")
+                await page.reload(wait_until="domcontentloaded", timeout=30000)
+                try:
+                    await page.wait_for_load_state("networkidle", timeout=10000)
+                except:
+                    pass
+                await asyncio.sleep(3)
+
+                # Coba lagi setelah reload
+                for sel in FORM_SELECTORS:
+                    try:
+                        await page.wait_for_selector(sel, timeout=5000)
+                        form_found = True
+                        break
+                    except:
+                        continue
+
+            if not form_found:
                 screenshot_path = f"/tmp/login_form_not_found_{email.replace('@', '_')}.png"
                 await page.screenshot(path=screenshot_path)
                 log(f"  [{label}] Screenshot: {screenshot_path}")
-                raise Exception("Login form not found")
-            
-            await asyncio.sleep(2)
+                raise Exception("Login form not found after reload")
 
-            # Input email - multiple selector fallback
+            # Input email - multiple selector fallback (lebih lengkap)
             log(f"  [{label}] Input email...")
-            email_selectors = ['input[type="text"]', 'input[type="email"]', 'input[name="email"]', 'input[placeholder*="email" i]']
+            email_selectors = [
+                'input[type="email"]',
+                'input[name="email"]',
+                'input[name="username"]',
+                'input[placeholder*="email" i]',
+                'input[placeholder*="nomor" i]',
+                'input[placeholder*="hp" i]',
+                'input[placeholder*="phone" i]',
+                'input[type="text"]',
+                'input[type="tel"]',
+            ]
             email_input = None
             for selector in email_selectors:
                 if await page.locator(selector).count() > 0:
@@ -122,7 +188,14 @@ async def login_one(email: str, pin: str, label: str = "", retry: int = 0) -> di
 
             # Input PIN
             log(f"  [{label}] Input PIN...")
-            pin_selectors = ['input[type="password"]', 'input[name="pin"]', 'input[placeholder*="PIN" i]']
+            pin_selectors = [
+                'input[type="password"]',
+                'input[name="pin"]',
+                'input[name="password"]',
+                'input[placeholder*="pin" i]',
+                'input[placeholder*="password" i]',
+                'input[placeholder*="kata sandi" i]',
+            ]
             pin_input = None
             for selector in pin_selectors:
                 if await page.locator(selector).count() > 0:
@@ -138,16 +211,34 @@ async def login_one(email: str, pin: str, label: str = "", retry: int = 0) -> di
 
             # Klik tombol login
             log(f"  [{label}] Click login...")
-            login_selectors = ['button[type="submit"]', 'button:has-text("Masuk")', 'button:has-text("Login")', 'button:has-text("MASUK")']
+            login_selectors = [
+                'button[type="submit"]',
+                'button:has-text("Masuk")',
+                'button:has-text("MASUK")',
+                'button:has-text("Login")',
+                'button:has-text("LOGIN")',
+                'button:has-text("Sign In")',
+                '[class*="login" i] button',
+                '[class*="submit" i]',
+                'form button',
+            ]
             login_btn = None
             for selector in login_selectors:
-                if await page.locator(selector).count() > 0:
-                    login_btn = page.locator(selector).first
-                    break
+                try:
+                    if await page.locator(selector).count() > 0:
+                        login_btn = page.locator(selector).first
+                        break
+                except:
+                    continue
             if login_btn:
                 await login_btn.click()
             else:
-                raise Exception("Login button not found")
+                # Fallback: tekan Enter di field PIN
+                log(f"  [{label}] Tombol login tidak ditemukan, coba Enter...")
+                if pin_input:
+                    await pin_input.press("Enter")
+                else:
+                    raise Exception("Login button not found")
 
             # Tunggu token atau navigasi
             log(f"  [{label}] Waiting for response...")

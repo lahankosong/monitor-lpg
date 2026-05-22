@@ -23,7 +23,7 @@ use App\Http\Controllers\StopBatchController;
 use App\Http\Controllers\LoginController;
 use App\Http\Controllers\NotifikasiController;
 use App\Http\Controllers\Agen\GudangController;
-use App\Http\Controllers\GithubActionsController;
+use App\Http\Controllers\Api\GithubActionsController;
 use Illuminate\Support\Facades\Route;
 
 // ── API untuk GitHub Actions (tanpa auth session, pakai X-API-Key) ────
