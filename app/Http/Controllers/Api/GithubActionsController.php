@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Log;
  * API khusus untuk GitHub Actions scraper.
  * Autentikasi via X-API-Key header (bukan session Laravel).
  */
-class GithubActionsController extends Controller
+class GithubActionsController
 {
     /** GET /api/health — health check untuk scraper */
     public function health()
@@ -51,21 +51,29 @@ class GithubActionsController extends Controller
         }
 
         try {
+            // Ambil semua sesi aktif — utamakan yang punya UUID (bukan pending_)
             $sessions = PangkalanSession::where('is_active', true)
                 ->whereNotNull('password_encrypted')
-                ->get();
+                ->orderByRaw("CASE WHEN pangkalan_id LIKE 'pending_%' THEN 1 ELSE 0 END")
+                ->get()
+                // Deduplikasi per username — ambil yang UUID dulu, bukan pending_
+                ->groupBy('username')
+                ->map(fn($g) => $g->first())
+                ->values();
 
             $accounts = $sessions->map(function ($s) {
                 try {
                     $pin = Crypt::decryptString($s->password_encrypted);
+                    if (empty($pin)) return null;
                 } catch (\Exception $e) {
                     Log::warning("[GithubActions] Gagal dekripsi: {$s->label} — {$e->getMessage()}");
                     return null;
                 }
                 return [
-                    'label' => $s->label,
-                    'email' => $s->username,
-                    'pin'   => $pin,
+                    'label'      => $s->label ?? $s->username,
+                    'email'      => $s->username,
+                    'pin'        => $pin,
+                    'session_id' => $s->id,
                 ];
             })->filter()->values();
 

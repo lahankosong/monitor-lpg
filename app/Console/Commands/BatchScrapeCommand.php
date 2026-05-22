@@ -62,8 +62,17 @@ class BatchScrapeCommand extends Command
 
         set_time_limit(0);
 
+        // File log realtime — HARUS didefinisikan sebelum dipakai di $cmd
+        $logFile = storage_path('app/batch_realtime_log.jsonl');
+        if (file_exists($logFile)) unlink($logFile);
+
+        // Deteksi OS: Windows pakai 'set', Linux pakai 'export'
+        $isWindows = strtoupper(substr(PHP_OS, 0, 3)) === 'WIN';
+        $envPrefix  = $isWindows ? 'set PYTHONUNBUFFERED=1 &&' : 'PYTHONUNBUFFERED=1';
+
         $cmd = sprintf(
-            'set PYTHONUNBUFFERED=1 && %s %s --accounts %s --from %s --to %s --output %s --logfile %s',
+            '%s %s %s --accounts %s --from %s --to %s --output %s --logfile %s',
+            $envPrefix,
             escapeshellcmd($pythonPath),
             escapeshellarg($scriptPath),
             escapeshellarg($accountPath),
@@ -83,9 +92,6 @@ class BatchScrapeCommand extends Command
             Cache::forget('batch_scrape_running');
             return 1;
         }
-
-        // File log realtime — Python tulis, PHP baca tiap detik
-        $logFile = storage_path('app/batch_realtime_log.jsonl');
         if (file_exists($logFile)) unlink($logFile);
         Cache::put('batch_scrape_logs', [], now()->addHours(2));
         Cache::put('batch_log_file', $logFile, now()->addHours(2));

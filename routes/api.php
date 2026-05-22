@@ -5,18 +5,14 @@ use Illuminate\Support\Facades\Route;
 
 /*
 |--------------------------------------------------------------------------
-| API Routes
+| API Routes — Tanpa CSRF, tanpa auth session
+| Diakses oleh GitHub Actions scraper
 |--------------------------------------------------------------------------
-|
-| Routes untuk integrasi external (GitHub Actions, dll)
-| Prefix: /api
-|
 */
 
-// Health check
 Route::get('/health', [GithubActionsController::class, 'health']);
 
-// GitHub Actions endpoints
 Route::prefix('github-actions')->group(function () {
-    Route::post('/tokens', [GithubActionsController::class, 'receiveTokens']);
+    Route::get('/accounts', [GithubActionsController::class, 'getAccounts']);
+    Route::post('/tokens',  [GithubActionsController::class, 'receiveTokens']);
 });
