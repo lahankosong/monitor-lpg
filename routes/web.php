@@ -21,11 +21,16 @@ use App\Http\Controllers\BatchScrapeController;
 use App\Http\Controllers\AkunPangkalanController;
 use App\Http\Controllers\StopBatchController;
 use App\Http\Controllers\LoginController;
+use App\Http\Controllers\NotifikasiController;
+use App\Http\Controllers\Agen\GudangController;
 use App\Http\Controllers\GithubActionsController;
 use Illuminate\Support\Facades\Route;
 
 // ── API untuk GitHub Actions (tanpa auth session, pakai X-API-Key) ────
 // withoutMiddleware CSRF karena request dari GitHub Actions bukan browser
+Route::get('/api/health', [GithubActionsController::class, 'health'])
+    ->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class]);
+
 Route::prefix('api/github-actions')
     ->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class])
     ->group(function () {
@@ -37,6 +42,15 @@ Route::prefix('api/github-actions')
 Route::get('/login',  [LoginController::class, 'showLogin'])->name('login');
 Route::post('/login', [LoginController::class, 'login'])->name('login.post');
 Route::post('/logout',[LoginController::class, 'logout'])->name('logout')->middleware('auth');
+
+// Notifikasi
+Route::middleware(['auth'])->prefix('dashboard/notifikasi')->name('dashboard.notifikasi.')->group(function () {
+    Route::get('/',              [NotifikasiController::class, 'index'])->name('index');
+    Route::get('/count',         [NotifikasiController::class, 'count'])->name('count');
+    Route::get('/terbaru',       [NotifikasiController::class, 'terbaru'])->name('terbaru');
+    Route::post('/{id}/baca',    [NotifikasiController::class, 'baca'])->name('baca');
+    Route::post('/baca-semua',   [NotifikasiController::class, 'bacaSemua'])->name('baca-semua');
+});
 
 Route::prefix('dashboard')->name('dashboard.')->middleware(['auth'])->group(function () {
 
@@ -199,8 +213,32 @@ Route::prefix('dashboard')->name('dashboard.')->middleware(['auth'])->group(func
         Route::put('/detail/{detail}',         [DistribusiController::class, 'update'])->name('update');
         Route::get('/laporan',                 [DistribusiController::class, 'laporan'])->name('laporan');
         Route::get('/stok',                    [DistribusiController::class, 'stok'])->name('stok');
-        Route::post('/ambil-gudang',           [DistribusiController::class, 'ambilGudang'])->name('ambil-gudang');
-        Route::post('/konfirmasi-gendongan',   [DistribusiController::class, 'konfirmasiGendongan'])->name('konfirmasi-gendongan');
+
+        // Gudang
+        Route::prefix('gudang')->name('gudang.')->group(function () {
+            Route::get('/',                          [GudangController::class, 'index'])->name('index');
+            Route::get('/saldo',                     [GudangController::class, 'saldoApi'])->name('saldo');
+            // Beli tabung baru
+            Route::post('/beli',                     [GudangController::class, 'beliTabung'])->name('beli');
+            // Keluar tabung kosong ke armada/pinjaman
+            Route::post('/keluar-kosong',            [GudangController::class, 'keluarKosong'])->name('keluar-kosong');
+            // Masuk tabung isi dari armada
+            Route::post('/masuk-isi',                [GudangController::class, 'masukIsi'])->name('masuk-isi');
+            // Alokasi ke armada
+            Route::post('/alokasi-armada',               [GudangController::class, 'alokasiArmada'])->name('alokasi-armada');
+            Route::post('/armada/{armadaId}/kembalikan', [GudangController::class, 'kembalikanArmada'])->name('armada.kembalikan');
+            // Pinjaman
+            Route::post('/pinjam',                   [GudangController::class, 'pinjamStore'])->name('pinjam');
+            Route::post('/pinjam/{id}/kembali',      [GudangController::class, 'pinjamKembali'])->name('pinjam.kembali');
+            // Opname
+            Route::post('/opname',                   [GudangController::class, 'opname'])->name('opname');
+        });
+        Route::post('/ambil-gudang',                      [DistribusiController::class, 'ambilGudang'])->name('ambil-gudang');
+        Route::post('/konfirmasi-gendongan',              [DistribusiController::class, 'konfirmasiGendongan'])->name('konfirmasi-gendongan');
+        Route::post('/simpan-realisasi/{sj}',            [DistribusiController::class, 'simpanRealisasi'])->name('simpan-realisasi');
+        Route::post('/turun-gudang',                      [DistribusiController::class, 'turunGudang'])->name('turun-gudang');
+        Route::post('/nasib-sisa-trip/{sj}',              [DistribusiController::class, 'nasibSisaTrip'])->name('nasib-sisa-trip');
+        Route::post('/tutup-trip/{sj}',                   [DistribusiController::class, 'tutupTripDirect'])->name('tutup-trip');
         Route::patch('/antar-agen/{transaksi}/selesai', [DistribusiController::class, 'selesaiAntarAgen'])->name('selesai-antar-agen');
     }); // ── end agen/distribusi ──
 

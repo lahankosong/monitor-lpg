@@ -40,16 +40,33 @@ class DistribusiController extends Controller
         $alihIds = $allSisa->where('tipe','alih_pangkalan')->pluck('referensi_id')->filter();
         $alihMap = SjPengalihan::with('pangkalan')->whereIn('id', $alihIds)->get()->keyBy('id');
 
-        // Stok armada aktif (gendongan) per armada
-        $stokArmada = StokArmada::with('armada')
+        // Stok armada aktif (gendongan) per armada — ROLE-AWARE
+        $user = auth()->user();
+        $gendonganQuery = StokArmada::with(['armada','sjHeader'])
             ->where('sisa_akhir', '>', 0)
-            ->get()
-            ->groupBy('armada_id');
+            ->orderByDesc('tanggal');
+
+        if ($user->role === 'driver' && $user->karyawan_id) {
+            // Driver: hanya armada yang dia kendarai
+            $armadaIds = \Illuminate\Support\Facades\DB::table('armadas')
+                ->where('sopir_id', $user->karyawan_id)
+                ->pluck('id');
+            $gendonganQuery->whereIn('armada_id', $armadaIds);
+        }
+        // Admin/manajer/direktur: semua armada (tidak perlu filter)
+
+        $stokArmada = $gendonganQuery->get()->groupBy('armada_id');
 
         // Stok gudang tersedia
         $stokGudang = GudangStok::where('agen_id', Agen::profil()?->id ?? 0)
             ->where('sisa_stok', '>', 0)
             ->sum('sisa_stok');
+
+        // Buffer gudang tabung kosong
+        $bufferKosong = (int)(
+            \Illuminate\Support\Facades\DB::table('gudang_tabung_kosong')->where('jenis','masuk')->sum('qty') -
+            \Illuminate\Support\Facades\DB::table('gudang_tabung_kosong')->where('jenis','keluar')->sum('qty')
+        );
 
         $pangkalans = Pangkalan::aktif()->orderBy('nama_pangkalan')->get();
         $agenLain   = Agen::where('id', '!=', Agen::profil()?->id ?? 0)->get();
@@ -59,7 +76,7 @@ class DistribusiController extends Controller
         );
 
         return view('agen.distribusi.realisasi', compact(
-            'sjHariIni','stokArmada','stokGudang','alihMap',
+            'sjHariIni','stokArmada','stokGudang','bufferKosong','alihMap',
             'tanggal','bulan','tahun','bulanList',
             'pangkalans','agenLain'
         ));
@@ -277,6 +294,78 @@ class DistribusiController extends Controller
     // ─────────────────────────────────────────────────────────────────────────
     // TUTUP TRIP — Setelah semua pangkalan selesai, hitung stok_armada
     // ─────────────────────────────────────────────────────────────────────────
+    /** Tutup trip langsung (jika sisa = 0) */
+    public function tutupTripDirect(SuratJalanHeader $sj)
+    {
+        $totalTersedia = $sj->qty_refil + ($sj->qty_gendongan_masuk ?? 0) + ($sj->qty_ambil_gudang ?? 0);
+        $totalTerkirim = $sj->details->sum('qty_terima');
+        if ($totalTersedia - $totalTerkirim > 0) {
+            return back()->withErrors(['sisa' => 'Masih ada sisa — tentukan nasib sisa dulu.']);
+        }
+        $this->tutupTrip($sj);
+        return back()->with('success', "Trip {$sj->no_sj} berhasil ditutup.");
+    }
+
+    /** Simpan nasib sisa trip — dipanggil sebelum tutup trip */
+    public function nasibSisaTrip(Request $request, SuratJalanHeader $sj)
+    {
+        $request->validate([
+            'sisa_tipe'   => 'required|array|min:1',
+            'sisa_qty'    => 'required|array',
+        ]);
+
+        $sisaTypes = $request->sisa_tipe;
+        $sisaQty   = $request->sisa_qty;
+
+        // Hitung total sisa sesungguhnya
+        $totalTersedia = $sj->qty_refil
+                       + ($sj->qty_gendongan_masuk ?? 0)
+                       + ($sj->qty_ambil_gudang ?? 0);
+        $totalTerkirim = $sj->details->sum('qty_terima');
+        $sisaTrip      = max(0, $totalTersedia - $totalTerkirim);
+
+        // Validasi total alokasi = sisa
+        $totalAlokasi = collect($sisaTypes)->sum(fn($t) => (int)($sisaQty[$t] ?? 0));
+        if ($totalAlokasi !== $sisaTrip) {
+            return back()->withErrors([
+                'sisa' => "Total alokasi ({$totalAlokasi}) ≠ sisa trip ({$sisaTrip}). Periksa kembali."
+            ]);
+        }
+
+        // Hapus sisa lama untuk SJ ini (jika ada edit)
+        SjSisaDistribusi::whereHas('sjDetail', fn($q) => $q->where('header_id', $sj->id))
+            ->whereIn('tipe', ['stok_armada','gudang_sendiri','titip_agen_lain'])
+            ->delete();
+
+        // Simpan sisa baru — attached ke detail pertama (karena ini level SJ)
+        $detailPertama = $sj->details->first();
+        if (!$detailPertama) return back()->withErrors(['sisa' => 'SJ tidak punya detail.']);
+
+        foreach ($sisaTypes as $tipe) {
+            $qty = (int)($sisaQty[$tipe] ?? 0);
+            if ($qty <= 0) continue;
+
+            $data = [
+                'sj_detail_id' => $detailPertama->id,
+                'tipe'         => $tipe,
+                'qty'          => $qty,
+                'keterangan'   => 'Nasib sisa trip '.$sj->no_sj,
+            ];
+
+            if ($tipe === 'titip_agen_lain') {
+                $data['referensi_id']   = $request->sisa_agen_id;
+                $data['referensi_tipe'] = 'agen';
+            }
+
+            SjSisaDistribusi::create($data);
+        }
+
+        // Langsung tutup trip
+        $this->tutupTrip($sj);
+
+        return back()->with('success', "Trip {$sj->no_sj} berhasil ditutup.");
+    }
+
     private function tutupTrip(SuratJalanHeader $header): void
     {
         $header->load(['details.sisaDistribusi']);
@@ -579,3 +668,171 @@ class DistribusiController extends Controller
         return back()->with('success', 'Transaksi antar agen ditandai selesai.');
     }
 }
+
+    // ─────────────────────────────────────────────────────────────
+    // SIMPAN REALISASI FLEKSIBEL
+    // Terima input bebas: pangkalan jadwal + di luar jadwal
+    // Backend rekonsiliasi otomatis
+    // ─────────────────────────────────────────────────────────────
+    public function simpanRealisasi(Request $request, SuratJalanHeader $sj)
+    {
+        $request->validate([
+            'pangkalan_id'  => 'required|array',
+            'qty_terima'    => 'required|array',
+            'sisa_armada'   => 'nullable|integer|min:0',
+            'sisa_gudang'   => 'nullable|integer|min:0',
+            'sisa_agen_lain'=> 'nullable|integer|min:0',
+        ]);
+
+        $pangkalanIds  = $request->pangkalan_id;
+        $qtys          = $request->qty_terima;
+        $totalTersedia = $sj->qty_refil
+                       + ($sj->qty_gendongan_masuk ?? 0)
+                       + ($sj->qty_ambil_gudang ?? 0);
+
+        $totalTerkirim = collect($qtys)->sum(fn($q) => (int)$q);
+        $sisaTrip      = max(0, $totalTersedia - $totalTerkirim);
+
+        // Validasi nasib sisa
+        $sisaArmada  = (int)$request->sisa_armada;
+        $sisaGudang  = (int)$request->sisa_gudang;
+        $sisaAgenLain= (int)$request->sisa_agen_lain;
+        $totalSisa   = $sisaArmada + $sisaGudang + $sisaAgenLain;
+
+        if ($totalSisa !== $sisaTrip) {
+            return back()->withErrors([
+                'sisa' => "Total nasib sisa ({$totalSisa}) ≠ sisa trip ({$sisaTrip}). Periksa kembali."
+            ]);
+        }
+
+        DB::transaction(function () use (
+            $sj, $pangkalanIds, $qtys,
+            $sisaArmada, $sisaGudang, $sisaAgenLain, $sisaTrip, $totalTerkirim
+        ) {
+            // ── Update / buat detail per pangkalan ───────────────
+            $jadwalIds = $sj->details->pluck('pangkalan_id')->toArray();
+
+            foreach ($pangkalanIds as $i => $pkId) {
+                $qty = (int)($qtys[$i] ?? 0);
+                if (!$pkId) continue;
+
+                // Cari detail yang sudah ada
+                $detail = $sj->details->firstWhere('pangkalan_id', $pkId);
+
+                if ($detail) {
+                    // Update detail yang ada
+                    $status = 'terkirim';
+                    if ($qty <= 0)                    $status = 'batal';
+                    elseif ($qty < $detail->qty_jadwal) $status = 'sebagian';
+
+                    $detail->update([
+                        'qty_terima' => $qty,
+                        'status'     => $status,
+                    ]);
+
+                    // Hapus sisa lama
+                    $detail->sisaDistribusi()
+                        ->whereNotIn('tipe',['alih_pangkalan'])
+                        ->delete();
+
+                } else {
+                    // Pangkalan di luar jadwal → tambah detail baru
+                    // Rekonsiliasi: cari jadwal yang belum penuh untuk jadi sumber
+                    $detail = SuratJalanDetail::create([
+                        'header_id'   => $sj->id,
+                        'pangkalan_id'=> $pkId,
+                        'qty_jadwal'  => 0,  // tidak ada jadwal
+                        'qty_terima'  => $qty,
+                        'status'      => $qty > 0 ? 'terkirim' : 'batal',
+                        'urutan'      => $sj->details->count() + 1,
+                        'is_extra'    => true,
+                    ]);
+                }
+            }
+
+            // ── REKONSILIASI OTOMATIS ────────────────────────────
+            // Pangkalan jadwal yang qty_terima < qty_jadwal
+            // → sisa otomatis dicatat sebagai "tidak terambil"
+            // → sistem cek apakah ada pangkalan ekstra yang menyerap
+            $sj->refresh()->load('details');
+
+            // Total sisa per jadwal
+            foreach ($sj->details->where('is_extra', false) as $d) {
+                $sisaDetail = max(0, $d->qty_jadwal - $d->qty_terima);
+                if ($sisaDetail <= 0) continue;
+
+                // Cari apakah ada baris ekstra yang "menyerap" sisa ini
+                // Rekonsiliasi: distribusikan sisa ke ekstra secara FIFO
+                $ekstraRows = $sj->details->where('is_extra', true)
+                    ->where('qty_terima', '>', 0);
+
+                $tersisaAlih = $sisaDetail;
+                foreach ($ekstraRows as $ekstra) {
+                    if ($tersisaAlih <= 0) break;
+                    $serap = min($tersisaAlih, $ekstra->qty_terima);
+
+                    // Catat pengalihan otomatis
+                    SjSisaDistribusi::updateOrCreate(
+                        ['sj_detail_id' => $d->id, 'tipe' => 'alih_pangkalan',
+                         'referensi_id' => $ekstra->pangkalan_id],
+                        ['qty' => $serap,
+                         'keterangan' => 'Otomatis: diserap pangkalan di luar jadwal']
+                    );
+                    $tersisaAlih -= $serap;
+                }
+            }
+
+            // ── Simpan nasib sisa trip ───────────────────────────
+            // Hapus sisa trip level lama
+            SjSisaDistribusi::whereHas('sjDetail', fn($q) =>
+                $q->where('header_id', $sj->id)
+            )->whereIn('tipe',['stok_armada','gudang_sendiri','titip_agen_lain'])->delete();
+
+            $detailPertama = $sj->details->first();
+            if ($sisaArmada > 0) {
+                SjSisaDistribusi::create([
+                    'sj_detail_id' => $detailPertama->id,
+                    'tipe'         => 'stok_armada',
+                    'qty'          => $sisaArmada,
+                    'keterangan'   => 'Sisa trip ' . $sj->no_sj,
+                ]);
+            }
+            if ($sisaGudang > 0) {
+                SjSisaDistribusi::create([
+                    'sj_detail_id' => $detailPertama->id,
+                    'tipe'         => 'gudang_sendiri',
+                    'qty'          => $sisaGudang,
+                    'keterangan'   => 'Turun ke gudang dari trip ' . $sj->no_sj,
+                ]);
+            }
+
+            // Tutup trip
+            $this->tutupTrip($sj->fresh());
+        });
+
+        return back()->with('success', "Trip {$sj->no_sj} berhasil disimpan dan ditutup.");
+    }
+
+    /** Turunkan gendongan ke gudang (tanpa masuk ke SJ baru) */
+    public function turunGudang(Request $request)
+    {
+        $request->validate(['armada_id' => 'required|exists:armadas,id']);
+        $stok = StokArmada::where('armada_id', $request->armada_id)
+            ->where('sisa_akhir', '>', 0)->first();
+        if (!$stok) return back()->withErrors(['msg' => 'Tidak ada gendongan aktif.']);
+
+        DB::table('gudang_tabung_isi')->insert([
+            'jenis'      => 'masuk',
+            'sumber'     => 'turun_armada',
+            'qty'        => $stok->sisa_akhir,
+            'tanggal'    => now()->toDateString(),
+            'armada_id'  => $request->armada_id,
+            'keterangan' => 'Gendongan turun ke gudang sebelum DO baru',
+            'created_by' => auth()->id(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $stok->update(['sisa_akhir' => 0, 'status' => 'selesai']);
+        return back()->with('success', "{$stok->sisa_akhir} tabung isi diturunkan ke gudang.");
+    }

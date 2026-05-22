@@ -563,6 +563,54 @@ body {
       </svg>
     </button>
 
+    {{-- Notifikasi bell --}}
+    @auth
+    <div style="position:relative;display:flex;align-items:center">
+      <button id="btn-notif" onclick="toggleNotifDropdown()"
+              style="position:relative;background:none;border:none;cursor:pointer;
+                     padding:6px;color:var(--nav-text);border-radius:8px;
+                     transition:background .15s"
+              onmouseover="this.style.background='rgba(0,0,0,.05)'"
+              onmouseout="this.style.background='none'">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+          <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+        </svg>
+        <span id="notif-badge" style="display:none;position:absolute;top:2px;right:2px;
+              background:#DC2626;color:#fff;font-size:9px;font-weight:700;
+              min-width:16px;height:16px;border-radius:8px;
+              display:none;align-items:center;justify-content:center;padding:0 3px">
+          0
+        </span>
+      </button>
+
+      {{-- Dropdown notifikasi --}}
+      <div id="notif-dropdown" style="display:none;position:absolute;top:calc(100% + 8px);right:0;
+           background:var(--surface);border:1px solid var(--border);border-radius:12px;
+           width:340px;box-shadow:0 8px 32px rgba(0,0,0,.15);z-index:200;overflow:hidden">
+        <div style="padding:12px 16px;border-bottom:1px solid var(--border);
+                    display:flex;justify-content:space-between;align-items:center">
+          <span style="font-size:13px;font-weight:700;color:var(--text)">Notifikasi</span>
+          <button onclick="bacaSemuaNotif()"
+                  style="font-size:11px;color:var(--accent);background:none;border:none;cursor:pointer">
+            Tandai semua dibaca
+          </button>
+        </div>
+        <div id="notif-list" style="max-height:320px;overflow-y:auto">
+          <div style="padding:32px;text-align:center;color:var(--muted);font-size:13px">
+            Memuat...
+          </div>
+        </div>
+        <div style="padding:10px;border-top:1px solid var(--border);text-align:center">
+          <a href="{{ route('dashboard.notifikasi.index') }}"
+             style="font-size:12px;color:var(--accent);text-decoration:none;font-weight:500">
+            Lihat semua notifikasi →
+          </a>
+        </div>
+      </div>
+    </div>
+    @endauth
+
     {{-- User info + logout --}}
     @auth
     <div class="desktop-only" style="display:flex;align-items:center;gap:8px">
@@ -755,6 +803,97 @@ document.querySelectorAll('.dropdown').forEach(d => {
     }
   });
 });
+
+// ── Notifikasi polling ─────────────────────────────────────────
+let notifOpen = false;
+async function pollNotifCount() {
+  try {
+    const r = await fetch('{{ route("dashboard.notifikasi.count") }}');
+    if (!r.ok) return;
+    const d = await r.json();
+    const badge = document.getElementById('notif-badge');
+    if (!badge) return;
+    if (d.count > 0) {
+      badge.textContent = d.count > 99 ? '99+' : d.count;
+      badge.style.display = 'flex';
+    } else {
+      badge.style.display = 'none';
+    }
+  } catch(e) {}
+}
+
+async function toggleNotifDropdown() {
+  const dd = document.getElementById('notif-dropdown');
+  notifOpen = !notifOpen;
+  dd.style.display = notifOpen ? 'block' : 'none';
+  if (notifOpen) loadNotifs();
+}
+
+async function loadNotifs() {
+  const list = document.getElementById('notif-list');
+  if (!list) return;
+  try {
+    const r = await fetch('{{ route("dashboard.notifikasi.terbaru") }}');
+    const d = await r.json();
+    if (!d.notifs || d.notifs.length === 0) {
+      list.innerHTML = '<div style="padding:32px;text-align:center;color:var(--muted);font-size:13px">Tidak ada notifikasi</div>';
+      return;
+    }
+    list.innerHTML = d.notifs.map(n => `
+      <a href="${n.url || '#'}" onclick="bacaNotif(${n.id}, event)"
+         style="display:flex;gap:10px;padding:10px 16px;border-bottom:1px solid var(--border);
+                text-decoration:none;background:${n.is_read ? 'transparent' : 'rgba(14,165,233,.05)'}">
+        <div style="flex-shrink:0;width:32px;height:32px;border-radius:8px;
+                    background:${n.warna}22;display:flex;align-items:center;
+                    justify-content:center;font-size:15px">
+          ${n.icon}
+        </div>
+        <div style="flex:1;min-width:0">
+          <p style="font-size:12px;font-weight:${n.is_read?'400':'600'};color:var(--text);
+                    white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${n.judul}</p>
+          <p style="font-size:11px;color:var(--muted);margin-top:1px;
+                    white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${n.pesan}</p>
+          <p style="font-size:10px;color:var(--muted);margin-top:2px">${n.waktu}</p>
+        </div>
+        ${!n.is_read ? '<div style="width:7px;height:7px;border-radius:50%;background:#0EA5E9;flex-shrink:0;margin-top:5px"></div>' : ''}
+      </a>`).join('');
+  } catch(e) {
+    list.innerHTML = '<div style="padding:16px;text-align:center;color:var(--muted);font-size:12px">Gagal memuat</div>';
+  }
+}
+
+async function bacaNotif(id, e) {
+  if (e) e.preventDefault();
+  try {
+    await fetch(`/dashboard/notifikasi/${id}/baca`, {
+      method:'POST',
+      headers:{'X-CSRF-TOKEN':document.querySelector('meta[name=csrf-token]').content}
+    });
+  } catch(err) {}
+  pollNotifCount();
+}
+
+async function bacaSemuaNotif() {
+  try {
+    await fetch('{{ route("dashboard.notifikasi.baca-semua") }}', {
+      method:'POST',
+      headers:{'X-CSRF-TOKEN':document.querySelector('meta[name=csrf-token]').content}
+    });
+  } catch(err) {}
+  pollNotifCount();
+  loadNotifs();
+}
+
+document.addEventListener('click', e => {
+  if (!notifOpen) return;
+  if (!e.target.closest('#btn-notif') && !e.target.closest('#notif-dropdown')) {
+    const dd = document.getElementById('notif-dropdown');
+    if (dd) dd.style.display = 'none';
+    notifOpen = false;
+  }
+});
+
+@auth pollNotifCount(); setInterval(pollNotifCount, 30000); @endauth
 </script>
 </body>
 </html>

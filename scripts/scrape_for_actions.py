@@ -1,5 +1,5 @@
 """
-scrape_for_actions.py — Script untuk GitHub Actions
+scrape_for_actions.py — Script untuk GitHub Actions dengan improved error handling
 Batch login ke MyPertamina dan kirim token ke Laravel API
 """
 
@@ -12,7 +12,7 @@ import base64
 import re
 from pathlib import Path
 from datetime import datetime
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
 
 # Flush output untuk GitHub Actions logs
 sys.stdout.reconfigure(line_buffering=True)
@@ -22,8 +22,8 @@ def log(msg: str):
     timestamp = datetime.now().strftime("%H:%M:%S")
     print(f"[{timestamp}] {msg}", flush=True)
 
-async def login_one(email: str, pin: str, label: str = "") -> dict:
-    """Login ke satu akun MyPertamina dan capture token"""
+async def login_one(email: str, pin: str, label: str = "", retry: int = 0) -> dict:
+    """Login ke satu akun MyPertamina dan capture token dengan retry"""
     result = {
         "success": False,
         "email": email,
@@ -33,78 +33,165 @@ async def login_one(email: str, pin: str, label: str = "") -> dict:
         "store_name": None,
         "error": None,
     }
-
+    
+    max_retries = 2
+    
     async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=True,
-            args=[
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-blink-features=AutomationControlled",
-                "--disable-infobars",
-                "--disable-extensions",
-            ]
-        )
-
-        context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            viewport={"width": 1280, "height": 800},
-            locale="id-ID",
-            timezone_id="Asia/Jakarta",
-        )
-
-        # Hide webdriver flag
-        await context.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-            Object.defineProperty(navigator, 'plugins', { get: () => [1,2,3,4,5] });
-            window.chrome = { runtime: {} };
-        """)
-
-        page = await context.new_page()
-        token_holder = {"token": None}
-
-        def handle_request(request):
-            auth = request.headers.get("authorization", "")
-            if auth.startswith("Bearer ") and not token_holder["token"]:
-                token_holder["token"] = auth.replace("Bearer ", "").strip()
-
-        page.on("request", handle_request)
-
+        browser = None
         try:
-            log(f"  [{label}] Membuka halaman login...")
+            browser = await p.chromium.launch(
+                headless=True,
+                args=[
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-blink-features=AutomationControlled",
+                    "--disable-infobars",
+                    "--disable-extensions",
+                    "--disable-web-security",
+                ]
+            )
+
+            context = await browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                viewport={"width": 1280, "height": 800},
+                locale="id-ID",
+                timezone_id="Asia/Jakarta",
+            )
+
+            # Hide webdriver flag
+            await context.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                Object.defineProperty(navigator, 'plugins', { get: () => [1,2,3,4,5] });
+                window.chrome = { runtime: {} };
+                delete window.__playwright;
+            """)
+
+            page = await context.new_page()
+            token_holder = {"token": None}
+            api_called = False
+
+            def handle_request(request):
+                nonlocal api_called
+                auth = request.headers.get("authorization", "")
+                if auth.startswith("Bearer ") and not token_holder["token"]:
+                    token_holder["token"] = auth.replace("Bearer ", "").strip()
+                    api_called = True
+                    log(f"  [{label}] Token captured")
+
+            page.on("request", handle_request)
+
+            log(f"  [{label}] Opening login page...")
             await page.goto(
                 "https://subsiditepatlpg.mypertamina.id/merchant-login",
                 wait_until="domcontentloaded",
                 timeout=60000
             )
-            await asyncio.sleep(3)
+            
+            # Wait for form with multiple selector fallback
+            try:
+                await page.wait_for_selector('input[type="text"], input[type="email"], input[name="email"]', timeout=10000)
+            except PlaywrightTimeoutError:
+                # Screenshot untuk debugging
+                screenshot_path = f"/tmp/login_form_not_found_{email.replace('@', '_')}.png"
+                await page.screenshot(path=screenshot_path)
+                log(f"  [{label}] Screenshot: {screenshot_path}")
+                raise Exception("Login form not found")
+            
+            await asyncio.sleep(2)
 
-            # Input email
+            # Input email - multiple selector fallback
             log(f"  [{label}] Input email...")
-            email_input = page.locator('input[type="text"], input[name="email"], input[placeholder*="email" i]').first
-            await email_input.fill(email)
-            await asyncio.sleep(0.5)
+            email_selectors = ['input[type="text"]', 'input[type="email"]', 'input[name="email"]', 'input[placeholder*="email" i]']
+            email_input = None
+            for selector in email_selectors:
+                if await page.locator(selector).count() > 0:
+                    email_input = page.locator(selector).first
+                    break
+            if not email_input:
+                # Fallback: cari semua input non-password
+                inputs = await page.locator('input:not([type="password"])').all()
+                if inputs:
+                    email_input = inputs[0]
+            if email_input:
+                await email_input.click()
+                await asyncio.sleep(0.3)
+                await email_input.fill(email)
+                await asyncio.sleep(0.5)
+            else:
+                raise Exception("Email input not found")
 
             # Input PIN
             log(f"  [{label}] Input PIN...")
-            pin_input = page.locator('input[type="password"], input[name="pin"], input[placeholder*="pin" i]').first
-            await pin_input.fill(pin)
-            await asyncio.sleep(0.5)
+            pin_selectors = ['input[type="password"]', 'input[name="pin"]', 'input[placeholder*="PIN" i]']
+            pin_input = None
+            for selector in pin_selectors:
+                if await page.locator(selector).count() > 0:
+                    pin_input = page.locator(selector).first
+                    break
+            if pin_input:
+                await pin_input.click()
+                await asyncio.sleep(0.3)
+                await pin_input.fill(pin)
+                await asyncio.sleep(0.5)
+            else:
+                raise Exception("PIN input not found")
 
             # Klik tombol login
-            log(f"  [{label}] Klik login...")
-            login_btn = page.locator('button[type="submit"], button:has-text("Masuk"), button:has-text("Login")').first
-            await login_btn.click()
+            log(f"  [{label}] Click login...")
+            login_selectors = ['button[type="submit"]', 'button:has-text("Masuk")', 'button:has-text("Login")', 'button:has-text("MASUK")']
+            login_btn = None
+            for selector in login_selectors:
+                if await page.locator(selector).count() > 0:
+                    login_btn = page.locator(selector).first
+                    break
+            if login_btn:
+                await login_btn.click()
+            else:
+                raise Exception("Login button not found")
 
-            # Tunggu navigasi atau token
-            await asyncio.sleep(5)
+            # Tunggu token atau navigasi
+            log(f"  [{label}] Waiting for response...")
+            try:
+                await page.wait_for_function(
+                    """() => {
+                        const resources = performance.getEntriesByType('resource');
+                        return resources.some(r => 
+                            r.name.includes('/products/v1/products/user') && 
+                            r.responseStatus === 200
+                        );
+                    }""",
+                    timeout=30000
+                )
+                await asyncio.sleep(1)
+            except PlaywrightTimeoutError:
+                # Cek apakah sudah redirect (login sukses)
+                current_url = page.url
+                if "dashboard" in current_url or "merchant" in current_url:
+                    log(f"  [{label}] Redirected to {current_url}")
+                    # Coba ambil token dari localStorage
+                    try:
+                        token_from_storage = await page.evaluate("localStorage.getItem('token')")
+                        if token_from_storage:
+                            token_holder["token"] = token_from_storage
+                            log(f"  [{label}] Token from localStorage")
+                    except:
+                        pass
+                else:
+                    # Screenshot on timeout
+                    screenshot_path = f"/tmp/timeout_{email.replace('@', '_')}.png"
+                    await page.screenshot(path=screenshot_path)
+                    log(f"  [{label}] Screenshot: {screenshot_path}")
 
-            # Coba ambil nama toko
+            # Ambil nama toko
             store_name = None
             try:
-                store_el = page.locator('[class*="store"], [class*="merchant"], h1, h2').first
-                store_name = await store_el.inner_text(timeout=3000)
-                store_name = store_name.strip()[:100] if store_name else None
+                store_selectors = ['[class*="store"]', '[class*="merchant"]', 'h1', 'h2', '.store-name']
+                for selector in store_selectors:
+                    if await page.locator(selector).count() > 0:
+                        store_name = await page.locator(selector).first.inner_text(timeout=3000)
+                        if store_name and store_name.strip():
+                            store_name = store_name.strip()[:100]
+                            break
             except:
                 pass
 
@@ -112,15 +199,21 @@ async def login_one(email: str, pin: str, label: str = "") -> dict:
             if token_holder["token"]:
                 log(f"  [{label}] ✓ Token berhasil didapat")
 
-                # Decode token untuk dapat pangkalan_id
+                # Decode token untuk dapat pangkalan_id dan cek expired
                 try:
-                    import base64
                     parts = token_holder["token"].split('.')
-                    payload_b64 = parts[1]
-                    # Add padding
-                    payload_b64 += '=' * (4 - len(payload_b64) % 4)
+                    payload_b64 = parts[1] + "=" * (4 - len(parts[1]) % 4)
                     payload = json.loads(base64.urlsafe_b64decode(payload_b64))
                     result["pangkalan_id"] = payload.get("sub")
+                    
+                    # Cek expired
+                    exp = payload.get("exp")
+                    if exp:
+                        exp_date = datetime.fromtimestamp(exp)
+                        if exp_date < datetime.now():
+                            log(f"  [{label}] ⚠ Token expired at {exp_date}")
+                            result["error"] = "Token already expired"
+                            return result
                 except Exception as e:
                     log(f"  [{label}] Warning: gagal decode token - {e}")
 
@@ -134,15 +227,32 @@ async def login_one(email: str, pin: str, label: str = "") -> dict:
         except Exception as e:
             result["error"] = str(e)
             log(f"  [{label}] ✗ Error: {e}")
+            
+            # Screenshot on error
+            if browser and 'page' in locals():
+                try:
+                    screenshot_path = f"/tmp/error_{email.replace('@', '_')}.png"
+                    await page.screenshot(path=screenshot_path)
+                    log(f"  [{label}] Screenshot: {screenshot_path}")
+                except:
+                    pass
+            
+            # Retry untuk error tertentu
+            retryable_errors = ['timeout', 'network', 'connection', 'ECONNREFUSED', 'ERR_CONNECTION']
+            if retry < max_retries and any(err in str(e).lower() for err in retryable_errors):
+                log(f"  [{label}] Retrying... ({retry + 1}/{max_retries})")
+                await asyncio.sleep(5)
+                return await login_one(email, pin, label, retry + 1)
 
         finally:
-            await browser.close()
+            if browser:
+                await browser.close()
 
     return result
 
 
 async def send_to_laravel(tokens: list, api_url: str, api_key: str, date_from: str, date_to: str):
-    """Kirim batch token ke Laravel API"""
+    """Kirim batch token ke Laravel API dengan retry"""
     log(f"Mengirim {len(tokens)} token ke Laravel...")
 
     payload = {
@@ -150,43 +260,80 @@ async def send_to_laravel(tokens: list, api_url: str, api_key: str, date_from: s
         "scrape_after": True,
         "date_from": date_from,
         "date_to": date_to,
+        "source": "github_actions",
+        "timestamp": datetime.now().isoformat()
     }
 
     headers = {
         "Content-Type": "application/json",
         "X-API-Key": api_key,
+        "User-Agent": "MyPertamina-Scraper/1.0",
     }
 
-    async with aiohttp.ClientSession() as session:
-        try:
-            async with session.post(
-                f"{api_url}/api/github-actions/tokens",
-                json=payload,
-                headers=headers,
-                timeout=aiohttp.ClientTimeout(total=300)
-            ) as resp:
-                result = await resp.json()
-                if resp.status == 200:
-                    log(f"✓ Laravel response: {result.get('message', 'OK')}")
-                    return result
-                else:
-                    log(f"✗ Laravel error ({resp.status}): {result}")
-                    return None
-        except Exception as e:
-            log(f"✗ Error mengirim ke Laravel: {e}")
-            return None
+    max_retries = 3
+    
+    for attempt in range(max_retries):
+        async with aiohttp.ClientSession() as session:
+            try:
+                # Healthcheck dulu
+                try:
+                    async with session.get(
+                        f"{api_url}/api/health",
+                        headers={"X-API-Key": api_key},
+                        timeout=aiohttp.ClientTimeout(total=5)
+                    ) as health_resp:
+                        if health_resp.status != 200:
+                            log(f"  API health check failed: {health_resp.status}")
+                except:
+                    log(f"  API health check timeout/skip")
+                
+                async with session.post(
+                    f"{api_url}/api/github-actions/tokens",
+                    json=payload,
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=300)
+                ) as resp:
+                    result = await resp.json()
+                    if resp.status == 200:
+                        log(f"✓ Laravel response: {result.get('message', 'OK')}")
+                        if result.get('tokens_saved') is not None:
+                            log(f"  Tokens saved: {result['tokens_saved']}")
+                        return result
+                    else:
+                        log(f"✗ Laravel error ({resp.status}): {result}")
+                        if attempt < max_retries - 1:
+                            log(f"  Retrying... ({attempt + 1}/{max_retries})")
+                            await asyncio.sleep(5)
+                        else:
+                            return None
+            except asyncio.TimeoutError:
+                log(f"✗ Timeout sending to Laravel, attempt {attempt + 1}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(5)
+            except Exception as e:
+                log(f"✗ Error mengirim ke Laravel: {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(5)
+    
+    return None
 
 
 async def main():
-    log("=" * 50)
+    log("=" * 60)
     log("MyPertamina Batch Scraper untuk GitHub Actions")
-    log("=" * 50)
+    log("=" * 60)
 
     # Baca konfigurasi dari environment
     api_url   = os.environ.get("LARAVEL_API_URL", "").rstrip("/")
     api_key   = os.environ.get("LARAVEL_API_KEY", "")
-    date_from = os.environ.get("DATE_FROM", "") or datetime.now().strftime("%Y-%m-%d")
-    date_to   = os.environ.get("DATE_TO",   "") or datetime.now().strftime("%Y-%m-%d")
+    date_from = os.environ.get("DATE_FROM", "")
+    date_to   = os.environ.get("DATE_TO", "")
+    
+    # Default date: kemarin sampai hari ini
+    if not date_from:
+        date_from = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    if not date_to:
+        date_to = datetime.now().strftime("%Y-%m-%d")
 
     if not api_url or not api_key:
         log("ERROR: LARAVEL_API_URL dan LARAVEL_API_KEY harus diset!")
@@ -199,21 +346,25 @@ async def main():
     accounts = None
 
     log("Fetching accounts from Laravel API...")
-    try:
-        import urllib.request
-        req = urllib.request.Request(
-            f"{api_url}/api/github-actions/accounts",
-            headers={"X-API-Key": api_key, "Accept": "application/json"},
-        )
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            body = json.loads(resp.read().decode())
-            if body.get("success"):
-                accounts = body["accounts"]
-                log(f"  ✓ {len(accounts)} akun diterima dari database")
-            else:
-                log(f"  API error: {body.get('message')}")
-    except Exception as e:
-        log(f"  WARN: Gagal fetch dari API ({e}), coba fallback...")
+    for attempt in range(3):
+        try:
+            import urllib.request
+            req = urllib.request.Request(
+                f"{api_url}/api/github-actions/accounts",
+                headers={"X-API-Key": api_key, "Accept": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                body = json.loads(resp.read().decode())
+                if body.get("success"):
+                    accounts = body["accounts"]
+                    log(f"  ✓ {len(accounts)} akun diterima dari database")
+                    break
+                else:
+                    log(f"  API error: {body.get('message')}")
+        except Exception as e:
+            log(f"  WARN: Gagal fetch dari API ({e}), attempt {attempt + 1}")
+            if attempt < 2:
+                await asyncio.sleep(3)
 
     # ── Fallback: env vars (untuk backward compat / testing) ──────
     if not accounts:
@@ -227,7 +378,6 @@ async def main():
                 log(f"  {len(accounts)} akun dari ACCOUNTS_BASE64")
             except Exception as e:
                 log(f"ERROR: Gagal decode ACCOUNTS_BASE64: {e}")
-                sys.exit(1)
 
         elif accounts_json_env:
             log("Fallback: loading accounts from ACCOUNTS_JSON...")
@@ -237,29 +387,26 @@ async def main():
                 log(f"  {len(accounts)} akun dari ACCOUNTS_JSON")
             except json.JSONDecodeError as e:
                 log(f"ERROR: Gagal parse ACCOUNTS_JSON: {e}")
-                sys.exit(1)
 
         else:
             # Fallback terakhir: file lokal untuk testing
             accounts_file = Path(__file__).parent / "accounts.json"
-            if not accounts_file.exists():
-                log("ERROR: Tidak bisa fetch accounts dari API maupun env/file!")
-                sys.exit(1)
-            log(f"Fallback: loading accounts from file {accounts_file}")
-            with open(accounts_file, "r", encoding="utf-8") as f:
-                accounts = json.load(f)
-            log(f"  {len(accounts)} akun dari file")
+            if accounts_file.exists():
+                log(f"Fallback: loading accounts from file {accounts_file}")
+                with open(accounts_file, "r", encoding="utf-8") as f:
+                    accounts = json.load(f)
+                log(f"  {len(accounts)} akun dari file")
 
     if not accounts:
-        log("ERROR: Tidak ada akun dalam file!")
+        log("ERROR: Tidak bisa fetch accounts dari API maupun env/file!")
         sys.exit(1)
 
     log(f"Memproses {len(accounts)} akun...")
-    log("-" * 50)
+    log("-" * 60)
 
-    # Login ke semua akun
+    # Login ke semua akun dengan delay
     successful_tokens = []
-    failed_count = 0
+    failed_accounts = []
 
     for i, acc in enumerate(accounts, 1):
         email = acc.get("email", "")
@@ -270,7 +417,7 @@ async def main():
 
         if not email or not pin:
             log(f"  Skipped: email atau pin kosong")
-            failed_count += 1
+            failed_accounts.append({"email": email, "error": "Missing credentials"})
             continue
 
         result = await login_one(email, pin, label)
@@ -282,25 +429,43 @@ async def main():
                 "pangkalan_id": result["pangkalan_id"],
                 "store_name": result["store_name"],
             })
+            log(f"  ✓ Success")
         else:
-            failed_count += 1
+            failed_accounts.append({"email": email, "error": result.get("error", "Unknown")})
+            log(f"  ✗ Failed: {result.get('error', 'Unknown')[:100]}")
 
-        # Delay antar akun untuk hindari rate limit
-        if i < len(accounts):
-            await asyncio.sleep(2)
+        # Delay antar akun
+        delay = 3 if i < len(accounts) else 0
+        if delay:
+            await asyncio.sleep(delay)
 
-    log("-" * 50)
-    log(f"Login selesai: {len(successful_tokens)} berhasil, {failed_count} gagal")
+    log("-" * 60)
+    log(f"Login selesai: {len(successful_tokens)} berhasil, {len(failed_accounts)} gagal")
+    
+    if failed_accounts:
+        log("Failed accounts:")
+        for fail in failed_accounts[:5]:  # Show first 5
+            log(f"  - {fail['email']}: {fail['error'][:50]}")
 
     # Kirim ke Laravel jika ada token
     if successful_tokens:
-        await send_to_laravel(successful_tokens, api_url, api_key, date_from, date_to)
+        result = await send_to_laravel(successful_tokens, api_url, api_key, date_from, date_to)
+        if result:
+            log("✓ Data berhasil dikirim ke Laravel")
+        else:
+            log("⚠ Data gagal dikirim ke Laravel, token disimpan di log")
+            # Save to file as backup
+            backup_file = f"/tmp/tokens_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            Path(backup_file).write_text(json.dumps(successful_tokens, indent=2))
+            log(f"  Backup saved: {backup_file}")
     else:
         log("Tidak ada token untuk dikirim ke Laravel")
+        sys.exit(1)
 
-    log("=" * 50)
+    log("=" * 60)
     log("Selesai!")
 
 
 if __name__ == "__main__":
+    from datetime import timedelta
     asyncio.run(main())

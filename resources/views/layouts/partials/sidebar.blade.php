@@ -48,10 +48,17 @@
     <svg class="sidebar-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M1 3h15v13H1z"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
     Realisasi
   </a>
-  <a href="{{ route('dashboard.agen.distribusi.stok') }}"
-     class="sidebar-item {{ request()->routeIs('dashboard.agen.distribusi.stok') ? 'active' : '' }}">
-    <svg class="sidebar-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20 7H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
-    Stok & Gudang
+
+  <a href="{{ route('dashboard.agen.distribusi.gudang.index') }}"
+     class="sidebar-item {{ request()->routeIs('dashboard.agen.distribusi.gudang*') ? 'active' : '' }}">
+    <svg class="sidebar-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><rect x="9" y="12" width="6" height="9" rx="0"/></svg>
+    Gudang
+    @php $saldoGudang = \Illuminate\Support\Facades\DB::table('gudang_stok')->sum('sisa_stok') @endphp
+    @if($saldoGudang > 0)
+      <span style="margin-left:auto;background:var(--accent);color:#fff;font-size:10px;padding:1px 6px;border-radius:99px">
+        {{ number_format($saldoGudang) }}
+      </span>
+    @endif
   </a>
   @endif
   <a href="{{ route('dashboard.agen.driver.index') }}"

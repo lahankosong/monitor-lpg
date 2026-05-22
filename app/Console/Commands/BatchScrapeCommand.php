@@ -63,13 +63,14 @@ class BatchScrapeCommand extends Command
         set_time_limit(0);
 
         $cmd = sprintf(
-            'set PYTHONUNBUFFERED=1 && %s %s --accounts %s --from %s --to %s --output %s',
+            'set PYTHONUNBUFFERED=1 && %s %s --accounts %s --from %s --to %s --output %s --logfile %s',
             escapeshellcmd($pythonPath),
             escapeshellarg($scriptPath),
             escapeshellarg($accountPath),
             escapeshellarg($from),
             escapeshellarg($to),
             escapeshellarg($resultFile),
+            escapeshellarg($logFile),
         );
 
         $this->info("Menjalankan Playwright...");
