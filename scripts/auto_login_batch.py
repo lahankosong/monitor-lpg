@@ -20,6 +20,22 @@ def log(msg: str):
     timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
     print(f"[{timestamp}] {msg}", file=sys.stderr, flush=True)
 
+def _jsonl_log(text: str, tipe: str = "info"):
+    """Tulis ke JSONL log file agar PHP bisa baca realtime via popup progress."""
+    logfile = os.environ.get("JSONL_LOGFILE", "")
+    if not logfile:
+        return
+    try:
+        entry = json.dumps({
+            "time": datetime.now().strftime("%H:%M:%S"),
+            "text": text,
+            "type": tipe,
+        }, ensure_ascii=False) + "\n"
+        with open(logfile, "a", encoding="utf-8") as f:
+            f.write(entry)
+    except Exception:
+        pass
+
 async def login_one(email: str, pin: str, label: str = "", retry: int = 0) -> dict:
     result = {
         "success": False, "label": label, "email": email,
