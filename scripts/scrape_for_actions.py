@@ -86,159 +86,139 @@ async def login_one(email: str, pin: str, label: str = "", retry: int = 0) -> di
                 wait_until="domcontentloaded",
                 timeout=60000
             )
-            # Debug: log URL dan title
+            # ── Debug: URL, title, dump semua input ────────────────
             try:
                 title = await page.title()
-                log(f"  [{label}] URL: {page.url}")
+                log(f"  [{label}] URL  : {page.url}")
                 log(f"  [{label}] Title: {title}")
             except:
                 pass
-            
-            # Tunggu halaman benar-benar siap (network idle)
-            try:
-                await page.wait_for_load_state("networkidle", timeout=15000)
-            except:
-                pass  # lanjut meski timeout
-            await asyncio.sleep(2)
 
-            # Scroll ke atas dan klik untuk trigger lazy-load React
+            # Tunggu networkidle — React SPA butuh waktu hydrate
             try:
-                await page.evaluate("window.scrollTo(0, 0)")
-                await page.mouse.click(640, 400)
-                await asyncio.sleep(1)
+                await page.wait_for_load_state("networkidle", timeout=20000)
             except:
                 pass
+            await asyncio.sleep(3)
 
-            # Wait for form — selector lebih lengkap + timeout lebih panjang
-            FORM_SELECTORS = [
-                'input[type="text"]',
-                'input[type="email"]',
-                'input[name="email"]',
-                'input[name="username"]',
-                'input[placeholder*="email" i]',
-                'input[placeholder*="nomor" i]',
-                'input[placeholder*="hp" i]',
-                'input[placeholder*="phone" i]',
-                'input:not([type="hidden"]):not([type="password"])',
-            ]
-            form_found = False
-            for sel in FORM_SELECTORS:
-                try:
-                    await page.wait_for_selector(sel, timeout=5000)
-                    form_found = True
-                    break
-                except:
-                    continue
+            # Dump semua input ke log → tahu persis selector yang ada
+            try:
+                all_inputs = await page.evaluate("""() => {
+                    return Array.from(document.querySelectorAll('input')).map(el => ({
+                        type: el.type, name: el.name,
+                        placeholder: el.placeholder.substring(0, 40),
+                        visible: el.offsetParent !== null
+                    }));
+                }""")
+                log(f"  [{label}] Total input ditemukan: {len(all_inputs)}")
+                for inp in all_inputs[:6]:
+                    log(f"    → type={inp['type']} name='{inp['name']}' ph='{inp['placeholder']}'")
+            except Exception as e:
+                log(f"  [{label}] Dump inputs error: {e}")
 
-            if not form_found:
-                # Coba reload sekali
-                log(f"  [{label}] Form tidak ditemukan, reload halaman...")
-                await page.reload(wait_until="domcontentloaded", timeout=30000)
-                try:
-                    await page.wait_for_load_state("networkidle", timeout=10000)
-                except:
-                    pass
-                await asyncio.sleep(3)
-
-                # Coba lagi setelah reload
-                for sel in FORM_SELECTORS:
-                    try:
-                        await page.wait_for_selector(sel, timeout=5000)
-                        form_found = True
-                        break
-                    except:
-                        continue
-
-            if not form_found:
-                screenshot_path = f"/tmp/login_form_not_found_{email.replace('@', '_')}.png"
-                await page.screenshot(path=screenshot_path)
-                log(f"  [{label}] Screenshot: {screenshot_path}")
-                raise Exception("Login form not found after reload")
-
-            # Input email - multiple selector fallback (lebih lengkap)
+            # ── Fill email via JS (React-safe, bypass synthetic events) ──
             log(f"  [{label}] Input email...")
-            email_selectors = [
-                'input[type="email"]',
-                'input[name="email"]',
-                'input[name="username"]',
-                'input[placeholder*="email" i]',
-                'input[placeholder*="nomor" i]',
-                'input[placeholder*="hp" i]',
-                'input[placeholder*="phone" i]',
-                'input[type="text"]',
-                'input[type="tel"]',
-            ]
-            email_input = None
-            for selector in email_selectors:
-                if await page.locator(selector).count() > 0:
-                    email_input = page.locator(selector).first
-                    break
-            if not email_input:
-                # Fallback: cari semua input non-password
-                inputs = await page.locator('input:not([type="password"])').all()
-                if inputs:
-                    email_input = inputs[0]
-            if email_input:
-                await email_input.click()
-                await asyncio.sleep(0.3)
-                await email_input.fill(email)
-                await asyncio.sleep(0.5)
-            else:
-                raise Exception("Email input not found")
-
-            # Input PIN
-            log(f"  [{label}] Input PIN...")
-            pin_selectors = [
-                'input[type="password"]',
-                'input[name="pin"]',
-                'input[name="password"]',
-                'input[placeholder*="pin" i]',
-                'input[placeholder*="password" i]',
-                'input[placeholder*="kata sandi" i]',
-            ]
-            pin_input = None
-            for selector in pin_selectors:
-                if await page.locator(selector).count() > 0:
-                    pin_input = page.locator(selector).first
-                    break
-            if pin_input:
-                await pin_input.click()
-                await asyncio.sleep(0.3)
-                await pin_input.fill(pin)
-                await asyncio.sleep(0.5)
-            else:
-                raise Exception("PIN input not found")
-
-            # Klik tombol login
-            log(f"  [{label}] Click login...")
-            login_selectors = [
-                'button[type="submit"]',
-                'button:has-text("Masuk")',
-                'button:has-text("MASUK")',
-                'button:has-text("Login")',
-                'button:has-text("LOGIN")',
-                'button:has-text("Sign In")',
-                '[class*="login" i] button',
-                '[class*="submit" i]',
-                'form button',
-            ]
-            login_btn = None
-            for selector in login_selectors:
-                try:
-                    if await page.locator(selector).count() > 0:
-                        login_btn = page.locator(selector).first
-                        break
-                except:
-                    continue
-            if login_btn:
-                await login_btn.click()
-            else:
-                # Fallback: tekan Enter di field PIN
-                log(f"  [{label}] Tombol login tidak ditemukan, coba Enter...")
-                if pin_input:
-                    await pin_input.press("Enter")
+            try:
+                filled = await page.evaluate("""(val) => {
+                    const sels = [
+                        'input[type="email"]', 'input[name="email"]',
+                        'input[name="username"]', 'input[placeholder*="email" i]',
+                        'input[placeholder*="nomor" i]', 'input[placeholder*="hp" i]',
+                        'input[type="text"]', 'input[type="tel"]',
+                        'input:not([type="password"]):not([type="hidden"])',
+                    ];
+                    for (const sel of sels) {
+                        const el = document.querySelector(sel);
+                        if (el && el.offsetParent !== null) {
+                            const setter = Object.getOwnPropertyDescriptor(
+                                window.HTMLInputElement.prototype, 'value').set;
+                            setter.call(el, val);
+                            el.dispatchEvent(new Event('input',  {bubbles:true}));
+                            el.dispatchEvent(new Event('change', {bubbles:true}));
+                            el.focus();
+                            return sel;
+                        }
+                    }
+                    return null;
+                }""", email)
+                if filled:
+                    log(f"  [{label}] Email diisi via JS selector: {filled}")
                 else:
-                    raise Exception("Login button not found")
+                    log(f"  [{label}] JS fill gagal, fallback locator...")
+                    inp = page.locator("input").first
+                    await inp.click()
+                    await inp.fill(email)
+            except Exception as e:
+                log(f"  [{label}] Email error: {e}")
+                raise Exception(f"Email input failed: {e}")
+
+            await asyncio.sleep(0.5)
+
+            # ── Fill PIN via JS ───────────────────────────────────────
+            log(f"  [{label}] Input PIN...")
+            pin_input = None
+            try:
+                pin_filled = await page.evaluate("""(val) => {
+                    const sels = [
+                        'input[type="password"]', 'input[name="pin"]',
+                        'input[name="password"]', 'input[placeholder*="pin" i]',
+                        'input[placeholder*="password" i]', 'input[placeholder*="sandi" i]',
+                    ];
+                    for (const sel of sels) {
+                        const el = document.querySelector(sel);
+                        if (el) {
+                            const setter = Object.getOwnPropertyDescriptor(
+                                window.HTMLInputElement.prototype, 'value').set;
+                            setter.call(el, val);
+                            el.dispatchEvent(new Event('input',  {bubbles:true}));
+                            el.dispatchEvent(new Event('change', {bubbles:true}));
+                            el.focus();
+                            return sel;
+                        }
+                    }
+                    return null;
+                }""", pin)
+                if pin_filled:
+                    log(f"  [{label}] PIN diisi via JS selector: {pin_filled}")
+                    pin_input = page.locator('input[type="password"]').first
+                else:
+                    log(f"  [{label}] PIN field tidak ditemukan via JS")
+                    inputs = await page.locator("input").all()
+                    if len(inputs) >= 2:
+                        pin_input = inputs[1]
+                        await pin_input.fill(pin)
+            except Exception as e:
+                log(f"  [{label}] PIN error: {e}")
+
+            await asyncio.sleep(0.5)
+
+            # ── Klik tombol login via JS ──────────────────────────────
+            log(f"  [{label}] Click login...")
+            try:
+                btn = await page.evaluate("""() => {
+                    const keywords = ['Masuk','MASUK','Login','LOGIN','Sign In','Submit','Lanjut'];
+                    for (const b of document.querySelectorAll('button')) {
+                        const t = b.textContent.trim();
+                        if (keywords.some(k => t.includes(k)) && b.offsetParent !== null) {
+                            b.click(); return t;
+                        }
+                    }
+                    const sub = document.querySelector('button[type="submit"]');
+                    if (sub && sub.offsetParent !== null) { sub.click(); return 'submit'; }
+                    // tombol terakhir yang visible
+                    const all = Array.from(document.querySelectorAll('button'))
+                        .filter(b => b.offsetParent !== null);
+                    if (all.length) { all[all.length-1].click(); return all[all.length-1].textContent.trim(); }
+                    return null;
+                }""")
+                if btn:
+                    log(f"  [{label}] Tombol diklik: '{btn}'")
+                else:
+                    log(f"  [{label}] Tombol tidak ada, tekan Enter...")
+                    await page.keyboard.press("Enter")
+            except Exception as e:
+                log(f"  [{label}] Click error: {e}, tekan Enter...")
+                await page.keyboard.press("Enter")
 
             # Tunggu token atau navigasi
             log(f"  [{label}] Waiting for response...")
