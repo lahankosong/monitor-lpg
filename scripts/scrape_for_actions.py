@@ -287,6 +287,36 @@ async def login_one(email: str, pin: str, label: str = "", retry: int = 0) -> di
             except:
                 pass
 
+            # Ambil data stok via API (bukan browser)
+            stock_data = {}
+            if token_holder["token"]:
+                try:
+                    import urllib.request as urlreq
+                    stok_req = urlreq.Request(
+                        "https://api-map.my-pertamina.id/general/products/v1/products/user",
+                        headers={
+                            "Authorization": f"Bearer {token_holder['token']}",
+                            "Accept": "application/json",
+                            "Origin": "https://subsiditepatlpg.mypertamina.id",
+                            "Referer": "https://subsiditepatlpg.mypertamina.id/",
+                        }
+                    )
+                    with urlreq.urlopen(stok_req, timeout=10) as r:
+                        stok_body = json.loads(r.read().decode())
+                        if stok_body.get("success"):
+                            d = stok_body["data"]
+                            stock_data = {
+                                "registration_id": d.get("registrationId"),
+                                "store_name_api":  d.get("storeName"),
+                                "stock_available": d.get("stockAvailable", 0),
+                                "stock_redeem":    d.get("stockRedeem", 0),
+                                "sold":            d.get("sold", 0),
+                                "stock_date":      d.get("stockDate"),
+                            }
+                            log(f"  [{label}] Stok: available={stock_data['stock_available']} sold={stock_data['sold']} redeem={stock_data['stock_redeem']}")
+                except Exception as e:
+                    log(f"  [{label}] Gagal ambil stok: {e}")
+
             # Cek apakah berhasil dapat token
             if token_holder["token"]:
                 log(f"  [{label}] ✓ Token berhasil didapat")
@@ -454,7 +484,14 @@ async def main():
                 else:
                     log(f"  API error: {body.get('message')}")
         except Exception as e:
-            log(f"  WARN: Gagal fetch dari API ({e}), attempt {attempt + 1}")
+            # Coba baca body error jika ada
+            err_body = ""
+            try:
+                if hasattr(e, 'read'):
+                    err_body = e.read().decode('utf-8', errors='ignore')[:200]
+            except:
+                pass
+            log(f"  WARN: Gagal fetch dari API ({e}){' — '+err_body if err_body else ''}, attempt {attempt + 1}")
             if attempt < 2:
                 await asyncio.sleep(3)
 
@@ -516,10 +553,11 @@ async def main():
 
         if result["success"]:
             successful_tokens.append({
-                "email": email,
-                "token": result["token"],
+                "email":        email,
+                "token":        result["token"],
                 "pangkalan_id": result["pangkalan_id"],
-                "store_name": result["store_name"],
+                "store_name":   result["store_name"],
+                "stock_data":   result.get("stock_data", {}),
             })
             log(f"  ✓ Success")
         else:

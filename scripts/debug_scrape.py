@@ -48,7 +48,9 @@ async def main():
         )
         
         await context.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+            Object.defineProperty(navigator, 'webdriver',  { get: () => undefined });
+            Object.defineProperty(navigator, 'plugins',    { get: () => [1,2,3,4,5] });
+            Object.defineProperty(navigator, 'languages',  { get: () => ['id-ID','id','en-US','en'] });
             window.chrome = { runtime: {} };
         """)
         
@@ -71,28 +73,102 @@ async def main():
                 wait_until="domcontentloaded",
                 timeout=60000
             )
-            
-            # Tunggu form muncul
+
+            # Log URL dan title untuk debug
+            print(f"  URL  : {page.url}")
+            print(f"  Title: {await page.title()}")
+
+            # Tunggu networkidle
             try:
-                await page.wait_for_selector('input[type="text"], input[type="email"]', timeout=10000)
-            except PlaywrightTimeoutError:
-                await take_screenshot(page, "no_form")
-                raise Exception("Login form not found")
-            
+                await page.wait_for_load_state("networkidle", timeout=10000)
+            except:
+                pass
             await asyncio.sleep(2)
 
+            # Dump semua input yang ada
+            try:
+                inputs = await page.evaluate("""() => {
+                    return Array.from(document.querySelectorAll('input')).map(el => ({
+                        type: el.type, name: el.name,
+                        placeholder: el.placeholder,
+                        visible: el.offsetParent !== null
+                    }));
+                }""")
+                print(f"  Input elements: {len(inputs)}")
+                for inp in inputs:
+                    print(f"    → type={inp['type']} name='{inp['name']}' placeholder='{inp['placeholder']}' visible={inp['visible']}")
+            except Exception as e:
+                print(f"  Gagal dump inputs: {e}")
+
+            # Cek apakah ada form
+            input_count = await page.evaluate("""() =>
+                Array.from(document.querySelectorAll('input'))
+                    .filter(el => el.offsetParent !== null).length
+            """)
+            
+            if input_count == 0:
+                await take_screenshot(page, "no_form")
+                # Dump HTML untuk debug
+                html = await page.content()
+                print(f"  HTML length: {len(html)}")
+                print(f"  HTML preview: {html[:500]}")
+                raise Exception("Login form not found")
+            
+            await asyncio.sleep(1)
+
             print("  Filling credentials...")
-            email_input = await page.wait_for_selector('input[type="text"], input[type="email"]')
-            await email_input.fill(args.email)
+            # Pakai JS evaluate — React-safe, tidak perlu wait_for_selector lagi
+            await page.evaluate("""(val) => {
+                const sels = ['input[type="text"]','input[type="email"]',
+                              'input[placeholder*="Ponsel"]','input[placeholder*="Email"]'];
+                for (const sel of sels) {
+                    const el = document.querySelector(sel);
+                    if (el && el.offsetParent !== null) {
+                        const setter = Object.getOwnPropertyDescriptor(
+                            window.HTMLInputElement.prototype, 'value').set;
+                        setter.call(el, val);
+                        el.dispatchEvent(new Event('input',  {bubbles:true}));
+                        el.dispatchEvent(new Event('change', {bubbles:true}));
+                        el.focus();
+                        return;
+                    }
+                }
+            }""", args.email)
+            print(f"  Email diisi: {args.email}")
             await asyncio.sleep(0.3)
-            
-            pin_input = await page.wait_for_selector('input[type="password"]')
-            await pin_input.fill(args.pin)
+
+            await page.evaluate("""(val) => {
+                const el = document.querySelector('input[type="password"]');
+                if (el) {
+                    const setter = Object.getOwnPropertyDescriptor(
+                        window.HTMLInputElement.prototype, 'value').set;
+                    setter.call(el, val);
+                    el.dispatchEvent(new Event('input',  {bubbles:true}));
+                    el.dispatchEvent(new Event('change', {bubbles:true}));
+                    el.focus();
+                }
+            }""", args.pin)
+            print(f"  PIN diisi")
             await asyncio.sleep(0.3)
-            
+
             print("  Clicking login button...")
-            login_btn = await page.wait_for_selector('button:has-text("MASUK"), button:has-text("Login")')
-            await login_btn.click()
+            login_btn_text = await page.evaluate("""() => {
+                const keywords = ['MASUK','Masuk','Login','LOGIN','Lanjut'];
+                for (const b of document.querySelectorAll('button')) {
+                    if (keywords.some(k => b.textContent.includes(k)) && b.offsetParent !== null) {
+                        b.click(); return b.textContent.trim();
+                    }
+                }
+                const sub = document.querySelector('button[type="submit"]');
+                if (sub) { sub.click(); return 'submit'; }
+                return null;
+            }""")
+            print(f"  Tombol diklik: {login_btn_text}")
+            if not login_btn_text:
+                await page.keyboard.press("Enter")
+                print("  Fallback: Enter")
+            # Dummy assignment agar kode di bawah tidak error
+            login_btn = True
 
             # Tunggu navigasi atau token
             for i in range(30):
