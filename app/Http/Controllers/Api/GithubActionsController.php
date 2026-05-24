@@ -51,6 +51,9 @@ class GithubActionsController
         }
 
         try {
+            // Test koneksi DB dulu
+            $count = PangkalanSession::count();
+
             // Ambil semua sesi aktif — utamakan yang punya UUID (bukan pending_)
             $sessions = PangkalanSession::where('is_active', true)
                 ->whereNotNull('password_encrypted')
@@ -137,7 +140,8 @@ class GithubActionsController
 
                         $pangkalanId = $t['pangkalan_id'] ?? ($payload['sub'] ?? null);
                         if (!empty($payload['exp'])) {
-                            $expiresAt = Carbon::createFromTimestamp($payload['exp']);
+                            // Simpan dalam UTC agar konsisten dengan server hosting
+                            $expiresAt = Carbon::createFromTimestampUTC($payload['exp']);
                         }
                     } catch (\Exception $e) {
                         $pangkalanId = $t['pangkalan_id'] ?? null;
@@ -158,6 +162,29 @@ class GithubActionsController
                             'is_active'        => true,
                         ]
                     );
+
+                    // Simpan data stok jika ada dan tabel tersedia
+                    // Key dari Railway: stockAvailable, stockRedeem, sold (camelCase)
+                    if (\Schema::hasTable('pangkalan_stocks')) {
+                        $sd = $t['stock_data'] ?? [];
+                        \DB::table('pangkalan_stocks')->updateOrInsert(
+                            [
+                                'pangkalan_id' => $pangkalanId,
+                                'recorded_at'  => now()->toDateString(),
+                            ],
+                            [
+                                'store_name'       => $t['store_name']      ?? null,
+                                'stock_available'  => $t['stock_available'] ?? $sd['stockAvailable'] ?? 0,
+                                'stock_redeem'     => $t['stock_redeem']    ?? $sd['stockRedeem']    ?? 0,
+                                'sold'             => $t['sold']            ?? $sd['sold']            ?? 0,
+                                'stock_date'       => $t['stock_date']      ?? null,
+                                'last_stock'       => $t['last_stock']      ?? null,
+                                'last_stock_date'  => $t['last_stock_date'] ?? null,
+                                'updated_at'       => now(),
+                                'created_at'       => now(),
+                            ]
+                        );
+                    }
 
                     // Update pangkalan_id jika masih pending_
                     if (!empty($t['email'])) {
@@ -184,28 +211,11 @@ class GithubActionsController
             }
 
             // Trigger batch scrape jika diminta
+            // Di shared hosting shell_exec diblokir — skip, scrape dilakukan manual
             if (!empty($data['scrape_after']) && $saved > 0) {
                 $from = $data['date_from'] ?? now()->toDateString();
                 $to   = $data['date_to']   ?? now()->toDateString();
-
-                try {
-                    $artisan = base_path('artisan');
-                    // Windows
-                    if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
-                        pclose(popen(
-                            "start /B php \"{$artisan}\" batch:scrape --from={$from} --to={$to}",
-                            'r'
-                        ));
-                    } else {
-                        // Linux (server hosting)
-                        shell_exec(
-                            "php \"{$artisan}\" batch:scrape --from={$from} --to={$to} > /dev/null 2>&1 &"
-                        );
-                    }
-                    Log::info("[GithubActions] batch:scrape dimulai: {$from} s/d {$to}");
-                } catch (\Exception $e) {
-                    Log::warning('[GithubActions] Gagal trigger scrape: ' . $e->getMessage());
-                }
+                Log::info("[GithubActions] scrape_after diminta tapi skip di hosting (shell_exec diblokir). Jalankan manual: php artisan scrape:transaksi --from={$from} --to={$to}");
             }
 
             return response()->json([
@@ -220,6 +230,104 @@ class GithubActionsController
             return response()->json([
                 'success' => false,
                 'message' => 'Server error: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * POST /api/github-actions/transactions
+     * Terima transaksi langsung dari GitHub Actions scraper
+     */
+    public function receiveTransactions(Request $request)
+    {
+        if (!$this->validateKey($request)) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
+        }
+
+        $data           = $request->json()->all();
+        $pangkalanId    = $data['pangkalan_id']    ?? null; // registration_id dari Pertamina
+        $registrationId = $data['registration_id'] ?? $pangkalanId;
+        $label          = $data['label']           ?? '';
+        $transactions   = $data['transactions']    ?? [];
+        $from           = $data['date_from']       ?? now()->toDateString();
+        $to             = $data['date_to']         ?? now()->toDateString();
+
+        if (!$pangkalanId) {
+            return response()->json(['success' => false, 'message' => 'pangkalan_id wajib diisi'], 422);
+        }
+
+        // Sync registration_id ke pangkalan_sessions jika belum ada
+        if ($registrationId) {
+            PangkalanSession::where('pangkalan_id', 'like', '%' . substr($registrationId, -8) . '%')
+                ->orWhere('label', $label)
+                ->update(['pangkalan_id' => $registrationId]);
+        }
+
+        $saved   = 0;
+        $skipped = 0;
+        $errors  = [];
+
+        try {
+            foreach ($transactions as $c) {
+                $txnId = $c['customerReportId'] ?? null;
+                if (!$txnId) continue;
+
+                try {
+                    // categories dari API adalah array e.g. ["Rumah Tangga"]
+                    // ambil elemen pertama sebagai string
+                    $cats     = $c['categories'] ?? [];
+                    $category = is_array($cats) ? ($cats[0] ?? 'Rumah Tangga') : ($cats ?: 'Rumah Tangga');
+                    $txAt = !empty($c['createdAt'])
+                        ? \Carbon\Carbon::parse($c['createdAt'])->setTimezone('Asia/Jakarta')
+                        : now();
+
+                    \DB::table('transactions')->upsert([
+                        'pangkalan_id'       => $pangkalanId,
+                        'customer_report_id' => $txnId,
+                        'nationality_id'     => $c['nationalityId'] ?? null,
+                        'name'               => $c['name']          ?? null,
+                        'category'           => $category,
+                        'total'              => $c['total']         ?? 0,
+                        'transaction_at'     => $txAt,
+                        'transaction_date'   => $txAt->toDateString(),
+                        'created_at'         => now(),
+                        'updated_at'         => now(),
+                    ], ['customer_report_id'], ['name', 'total', 'updated_at', 'transaction_at', 'transaction_date']);
+                    $saved++;
+                } catch (\Exception $e) {
+                    $errors[] = $e->getMessage();
+                    $skipped++;
+                }
+            }
+
+            // Catat scrape log
+            \DB::table('scrape_logs')->insert([
+                'pangkalan_id'    => $pangkalanId,
+                'start_date'      => $from,
+                'end_date'        => $to,
+                'records_fetched' => count($transactions),
+                'records_saved'   => $saved,
+                'status'          => 'success',
+                'scraped_at'      => now(),
+                'created_at'      => now(),
+                'updated_at'      => now(),
+            ]);
+
+            Log::info("[GithubActions] Transaksi diterima: {$label} — {$saved} saved, {$skipped} skip");
+
+            return response()->json([
+                'success' => true,
+                'message' => "{$saved} transaksi disimpan untuk {$label}",
+                'saved'   => $saved,
+                'skipped' => $skipped,
+                'errors'  => array_slice($errors, 0, 3),
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('[GithubActions] receiveTransactions error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
             ], 500);
         }
     }

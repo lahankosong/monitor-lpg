@@ -25,9 +25,12 @@ class TokenStatusCommand extends Command
         }
 
         $rows = $tokens->map(function ($t) {
-            $expired  = $t->token_expires_at?->isPast();
+            // Bandingkan dalam UTC agar konsisten dengan nilai tersimpan
+            $expired  = $t->token_expires_at
+                ? $t->token_expires_at->utc()->isPast()
+                : true;
             $sisa     = $t->token_expires_at
-                ? ($expired ? 'EXPIRED' : $t->token_expires_at->diffForHumans())
+                ? ($expired ? 'EXPIRED' : $t->token_expires_at->utc()->diffForHumans())
                 : '?';
             return [
                 $t->label ?? $t->pangkalan_id,
@@ -42,7 +45,7 @@ class TokenStatusCommand extends Command
             $rows
         );
 
-        $aktif   = $tokens->filter(fn($t) => !$t->token_expires_at?->isPast())->count();
+        $aktif   = $tokens->filter(fn($t) => $t->token_expires_at && !$t->token_expires_at->utc()->isPast())->count();
         $expired = $tokens->count() - $aktif;
 
         $this->line('');

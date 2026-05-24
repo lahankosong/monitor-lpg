@@ -2,60 +2,92 @@
 @section('title', 'Monitoring Stok')
 
 @section('content')
-<div style="margin-bottom:20px">
-  <h1 style="font-size:20px;font-weight:700;color:var(--text)">Monitoring Stok</h1>
-  <p style="font-size:12px;color:var(--muted);margin-top:2px">Gendongan (armada) · Gudang agen · Titipan antar agen</p>
+@include('layouts.partials.distribusi-styles')
+
+{{-- Page Header --}}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Monitoring Stok</h1>
+    <p class="page-sub">Gendongan (armada) · Gudang agen · Titipan antar agen</p>
+  </div>
 </div>
 
 @if(session('success'))
-<div style="background:#D1FAE5;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:13px;color:#065F46;font-weight:500">
-  ✓ {{ session('success') }}
-</div>
+<div class="alert-banner alert-success">✓ {{ session('success') }}</div>
 @endif
 
-{{-- ── GENDONGAN (STOK ARMADA) ─────────────────────────────────── --}}
-<h2 style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:10px">
+{{-- Summary stat cards --}}
+<div class="stat-grid">
+  @php
+    $totalGendongan = $gendongan->flatten()->sum('sisa_akhir');
+    $totalGudang    = $gudang->sum('sisa_stok');
+    $totalTitipan   = $titipanAktif->count();
+  @endphp
+  @if($totalGendongan > 0)
+  <div class="stat-card" style="border-left:3px solid #D97706">
+    <div class="stat-label">Gendongan aktif</div>
+    <div class="stat-value" style="color:#D97706">{{ number_format($totalGendongan) }}</div>
+    <div class="stat-sub">{{ $gendongan->count() }} armada · wajib habis</div>
+  </div>
+  @endif
+  @if($totalGudang > 0)
+  <div class="stat-card" style="border-left:3px solid #7C3AED">
+    <div class="stat-label">Stok gudang</div>
+    <div class="stat-value" style="color:#7C3AED">{{ number_format($totalGudang) }}</div>
+    <div class="stat-sub">tabung isi siap distribusi</div>
+  </div>
+  @endif
+  @if($titipanAktif->isNotEmpty())
+  <div class="stat-card" style="border-left:3px solid var(--accent)">
+    <div class="stat-label">Titipan aktif</div>
+    <div class="stat-value" style="color:var(--accent)">{{ $titipanAktif->count() }}</div>
+    <div class="stat-sub">dari agen lain</div>
+  </div>
+  @endif
+</div>
+
+{{-- ── GENDONGAN ──────────────────────────────────────────────── --}}
+<div class="section-title">
   ⚡ Stok Armada (Gendongan)
-  <span style="font-size:11px;font-weight:400;color:#F59E0B;margin-left:8px">Wajib habis sebelum ambil DO berikutnya</span>
-</h2>
+  <span class="badge badge-warn">Wajib habis sebelum DO baru</span>
+</div>
 
 @if($gendongan->isEmpty())
-<div class="card" style="padding:24px;text-align:center;color:var(--muted);margin-bottom:20px;font-size:13px">
+<div class="card" style="padding:28px;text-align:center;color:var(--muted);margin-bottom:20px">
   Tidak ada gendongan aktif — semua armada sudah bersih ✓
 </div>
 @else
-<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-bottom:20px">
+<div class="armada-grid">
   @foreach($gendongan as $armadaId => $stoks)
   @php $totalGnd = $stoks->sum('sisa_akhir'); @endphp
-  <div class="card" style="overflow:hidden">
-    <div style="padding:12px 14px;background:linear-gradient(135deg,#92400E,#B45309);color:#fff;display:flex;justify-content:space-between;align-items:center">
+  <div class="armada-card">
+    <div class="armada-header">
       <div>
-        <p style="font-size:15px;font-weight:700;font-family:monospace">{{ $stoks->first()->armada?->no_polisi }}</p>
-        <p style="font-size:11px;opacity:.8;margin-top:2px">{{ $stoks->count() }} trip tersisa</p>
+        <div class="armada-polisi">{{ $stoks->first()->armada?->no_polisi }}</div>
+        <div style="font-size:11px;opacity:.75;margin-top:2px">{{ $stoks->count() }} trip tersisa</div>
       </div>
       <div style="text-align:right">
-        <p style="font-size:28px;font-weight:700">{{ number_format($totalGnd) }}</p>
-        <p style="font-size:10px;opacity:.7">tabung</p>
+        <div class="armada-qty">{{ number_format($totalGnd) }}</div>
+        <div style="font-size:10px;opacity:.65">tabung</div>
       </div>
     </div>
     @foreach($stoks as $s)
-    <div style="padding:8px 14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;font-size:12px">
+    <div class="armada-trip">
       <div>
         <span style="color:var(--muted)">SJ: </span>
         <span style="font-family:monospace;color:var(--accent)">{{ $s->sjHeader?->no_sj }}</span>
-        <span style="display:block;color:var(--muted)">{{ $s->tanggal->format('d/m/Y') }}</span>
+        <span style="display:block;color:var(--muted);font-size:11px">{{ $s->tanggal->format('d/m/Y') }}</span>
       </div>
-      <div style="text-align:right">
+      <div>
         <span style="font-size:16px;font-weight:700;color:#F59E0B">{{ number_format($s->sisa_akhir) }}</span>
         <span style="font-size:10px;color:var(--muted)"> tb</span>
       </div>
     </div>
     @endforeach
-    {{-- Tombol: Masukkan ke SJ baru --}}
-    <div style="padding:10px 14px">
+    <div class="armada-action">
       <button onclick="bukaModalGendongan({{ $armadaId }}, '{{ $stoks->first()->armada?->no_polisi }}', {{ $totalGnd }}, {{ $stoks->first()->id }})"
-              style="width:100%;background:#D97706;color:#fff;border:none;border-radius:8px;padding:8px;font-size:12px;font-weight:600;cursor:pointer">
-        Masukkan ke SJ (armada sama) →
+              class="btn btn-warn btn-block">
+        Masukkan ke SJ →
       </button>
     </div>
   </div>
@@ -63,194 +95,188 @@
 </div>
 @endif
 
-{{-- ── STOK GUDANG ─────────────────────────────────────────────── --}}
-<h2 style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:10px">
+{{-- ── STOK GUDANG ──────────────────────────────────────────────── --}}
+<div class="section-title">
   🏪 Stok Gudang
-  <span style="font-size:11px;font-weight:400;color:#7C3AED;margin-left:8px">Bisa diambil kapan saja</span>
-</h2>
+  <span class="badge badge-purple">Bisa diambil kapan saja</span>
+</div>
 
 @if($gudang->isEmpty())
-<div class="card" style="padding:24px;text-align:center;color:var(--muted);margin-bottom:20px;font-size:13px">
+<div class="card" style="padding:28px;text-align:center;color:var(--muted);margin-bottom:20px">
   Tidak ada stok di gudang
 </div>
 @else
-<div class="card" style="overflow:hidden;margin-bottom:20px">
-  <table style="width:100%;border-collapse:collapse;font-size:13px">
-    <thead>
-      <tr style="background:var(--bg)">
-        @foreach(['Tgl Masuk','Sumber','Sisa Stok','Keterangan',''] as $h)
-          <th style="text-align:left;padding:9px 14px;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase">{{ $h }}</th>
+<div class="card">
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Tgl Masuk</th>
+          <th>Sumber</th>
+          <th style="text-align:right">Sisa Stok</th>
+          <th>Keterangan</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        @foreach($gudang as $g)
+        <tr>
+          <td style="color:var(--muted)">{{ $g->tgl_masuk->format('d/m/Y') }}</td>
+          <td>
+            @if($g->sumber === 'titipan_agen')
+              <span class="badge badge-green">🤝 Titipan {{ $g->agenAsal?->nama_agen }}</span>
+            @elseif($g->sumber === 'sisa_sj')
+              <span class="badge badge-purple">📦 Sisa SJ</span>
+            @else
+              <span style="color:var(--muted)">Manual</span>
+            @endif
+          </td>
+          <td style="text-align:right">
+            <strong style="font-size:15px;color:#7C3AED">{{ number_format($g->sisa_stok) }}</strong>
+            <span style="font-size:11px;color:var(--muted)"> tb</span>
+          </td>
+          <td style="font-size:12px;color:var(--muted)">{{ $g->keterangan }}</td>
+          <td>
+            <button onclick="bukaModalAmbilGudang({{ $g->id }}, {{ $g->sisa_stok }}, '{{ $g->tgl_masuk->format('d/m/Y') }}')"
+                    class="btn btn-sm btn-purple">
+              Ambil
+            </button>
+          </td>
+        </tr>
         @endforeach
-      </tr>
-    </thead>
-    <tbody>
-      @foreach($gudang as $g)
-      <tr style="border-top:1px solid var(--border)">
-        <td style="padding:9px 14px;color:var(--muted)">{{ $g->tgl_masuk->format('d/m/Y') }}</td>
-        <td style="padding:9px 14px">
-          @if($g->sumber === 'titipan_agen')
-            <span style="background:#D1FAE5;color:#065F46;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600">
-              🤝 Titipan {{ $g->agenAsal?->nama_agen }}
-            </span>
-          @elseif($g->sumber === 'sisa_sj')
-            <span style="background:#EDE9FE;color:#5B21B6;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600">
-              📦 Sisa SJ
-            </span>
-          @else
-            <span style="color:var(--muted)">Manual</span>
-          @endif
-        </td>
-        <td style="padding:9px 14px;font-size:16px;font-weight:700;color:#7C3AED">
-          {{ number_format($g->sisa_stok) }} <span style="font-size:11px;font-weight:400;color:var(--muted)">tb</span>
-        </td>
-        <td style="padding:9px 14px;font-size:12px;color:var(--muted)">{{ $g->keterangan }}</td>
-        <td style="padding:9px 14px">
-          <button onclick="bukaModalAmbilGudang({{ $g->id }}, {{ $g->sisa_stok }}, '{{ $g->tgl_masuk->format('d/m/Y') }}')"
-                  style="background:#7C3AED;color:#fff;border:none;border-radius:6px;padding:5px 12px;font-size:12px;cursor:pointer">
-            Ambil
-          </button>
-        </td>
-      </tr>
-      @endforeach
-    </tbody>
-    <tfoot>
-      <tr style="border-top:2px solid var(--border);background:var(--bg)">
-        <td colspan="2" style="padding:9px 14px;font-weight:600;color:var(--muted)">TOTAL TERSEDIA</td>
-        <td style="padding:9px 14px;font-size:16px;font-weight:700;color:#7C3AED">
-          {{ number_format($gudang->sum('sisa_stok')) }} <span style="font-size:11px;font-weight:400">tb</span>
-        </td>
-        <td colspan="2"></td>
-      </tr>
-    </tfoot>
-  </table>
+      </tbody>
+      <tfoot>
+        <tr style="background:var(--bg)">
+          <td colspan="2" style="font-weight:600;color:var(--muted)">TOTAL TERSEDIA</td>
+          <td style="text-align:right">
+            <strong style="font-size:16px;color:#7C3AED">{{ number_format($gudang->sum('sisa_stok')) }}</strong>
+            <span style="font-size:11px;color:var(--muted)"> tb</span>
+          </td>
+          <td colspan="2"></td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
 </div>
 @endif
 
-{{-- ── TITIPAN ANTAR AGEN ─────────────────────────────────────── --}}
+{{-- ── TITIPAN ANTAR AGEN ──────────────────────────────────────── --}}
 @if($titipanAktif->isNotEmpty())
-<h2 style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:10px">
-  🤝 Titipan Antar Agen (Aktif)
-</h2>
-<div class="card" style="overflow:hidden;margin-bottom:20px">
-  <table style="width:100%;border-collapse:collapse;font-size:13px">
-    <thead>
-      <tr style="background:var(--bg)">
-        @foreach(['Tgl Titip','Dari Agen','Ke Agen','Qty Isi','Pinjam Kosong','Status',''] as $h)
-          <th style="text-align:left;padding:9px 14px;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase">{{ $h }}</th>
+<div class="section-title">🤝 Titipan Antar Agen (Aktif)</div>
+<div class="card">
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Tgl Titip</th>
+          <th>Dari Agen</th>
+          <th>Ke Agen</th>
+          <th style="text-align:right">Qty Isi</th>
+          <th style="text-align:right">Pinjam Kosong</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        @foreach($titipanAktif as $t)
+        <tr>
+          <td style="color:var(--muted)">{{ $t->tgl_titip->format('d/m/Y') }}</td>
+          <td style="font-weight:600">{{ $t->agenAsal?->nama_agen }}</td>
+          <td style="font-weight:600">{{ $t->agenTujuan?->nama_agen }}</td>
+          <td style="text-align:right;font-weight:700;color:#059669">{{ number_format($t->qty_tabung_isi) }} tb</td>
+          <td style="text-align:right;color:{{ $t->qty_tabung_kosong > 0 ? '#DC2626' : 'var(--muted)' }}">
+            {{ $t->qty_tabung_kosong > 0 ? number_format($t->qty_tabung_kosong).' tb' : '—' }}
+          </td>
+          <td><span class="badge badge-blue">Aktif</span></td>
+          <td>
+            <form action="{{ route('dashboard.agen.distribusi.selesai-antar-agen', $t) }}" method="POST" style="display:inline">
+              @csrf @method('PATCH')
+              <button type="submit" class="btn btn-sm btn-ghost"
+                      onclick="return confirm('Tandai transaksi ini selesai?')">Selesai</button>
+            </form>
+          </td>
+        </tr>
         @endforeach
-      </tr>
-    </thead>
-    <tbody>
-      @foreach($titipanAktif as $t)
-      <tr style="border-top:1px solid var(--border)">
-        <td style="padding:9px 14px;color:var(--muted)">{{ $t->tgl_titip->format('d/m/Y') }}</td>
-        <td style="padding:9px 14px;font-weight:600;color:var(--text)">{{ $t->agenAsal?->nama_agen }}</td>
-        <td style="padding:9px 14px;font-weight:600;color:var(--text)">{{ $t->agenTujuan?->nama_agen }}</td>
-        <td style="padding:9px 14px;font-weight:700;color:#059669">{{ number_format($t->qty_tabung_isi) }} tb</td>
-        <td style="padding:9px 14px;color:{{ $t->qty_tabung_kosong>0?'#DC2626':'var(--muted)' }}">
-          {{ $t->qty_tabung_kosong > 0 ? number_format($t->qty_tabung_kosong).' tb' : '—' }}
-        </td>
-        <td style="padding:9px 14px">
-          <span style="background:#DBEAFE;color:#1E40AF;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600">Aktif</span>
-        </td>
-        <td style="padding:9px 14px">
-          <form action="{{ route('dashboard.agen.distribusi.selesai-antar-agen', $t) }}" method="POST" style="display:inline">
-            @csrf @method('PATCH')
-            <button type="submit" style="background:none;border:1px solid #059669;color:#059669;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer"
-                    onclick="return confirm('Tandai transaksi ini selesai?')">
-              Selesai
-            </button>
-          </form>
-        </td>
-      </tr>
-      @endforeach
-    </tbody>
-  </table>
+      </tbody>
+    </table>
+  </div>
 </div>
 @endif
 
 {{-- ── MODAL AMBIL GUDANG ──────────────────────────────────────── --}}
-<div id="modal-ambil-gudang" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);align-items:center;justify-content:center;z-index:300;padding:16px" onclick="document.getElementById('modal-ambil-gudang').style.display='none'">
-  <div style="background:var(--surface);border-radius:16px;width:100%;max-width:400px" onclick="event.stopPropagation()">
-    <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
-      <h3 style="font-size:15px;font-weight:700;color:var(--text)">Ambil dari Gudang</h3>
-      <button onclick="document.getElementById('modal-ambil-gudang').style.display='none'" style="background:none;border:none;font-size:22px;color:var(--muted);cursor:pointer">×</button>
+<div id="modal-ambil-gudang" class="modal-overlay" onclick="this.classList.remove('open')">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3 class="modal-title">Ambil dari Gudang</h3>
+      <button class="modal-close" onclick="document.getElementById('modal-ambil-gudang').classList.remove('open')">×</button>
     </div>
-    <form action="{{ route('dashboard.agen.distribusi.ambil-gudang') }}" method="POST" style="padding:18px 20px">
-      @csrf
-      <input type="hidden" name="gudang_stok_id" id="ag_gudang_id">
-
-      <div style="background:var(--bg);border-radius:8px;padding:10px;margin-bottom:14px;text-align:center">
-        <p style="font-size:11px;color:var(--muted)">Tersedia</p>
-        <p id="ag_tersedia" style="font-size:28px;font-weight:700;color:#7C3AED">0</p>
-        <p style="font-size:11px;color:var(--muted)">tabung</p>
-      </div>
-
-      <div style="margin-bottom:14px">
-        <label style="display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:5px">Masukkan ke SJ</label>
-        <select name="sj_header_id"
-                style="width:100%;border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:8px;padding:8px 12px;font-size:13px;outline:none">
-          <option value="">-- Pilih SJ Aktif --</option>
-          @foreach(\App\Models\SuratJalanHeader::where('status','aktif')->orderByDesc('tanggal')->get() as $sj)
-            <option value="{{ $sj->id }}">{{ $sj->no_sj }} · {{ $sj->tanggal->format('d/m/Y') }}</option>
-          @endforeach
-        </select>
-      </div>
-
-      <div style="margin-bottom:16px">
-        <label style="display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:5px">Qty Diambil</label>
-        <input type="number" name="qty" id="ag_qty" min="1" class="finput"
-               style="border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-size:20px;font-weight:700;text-align:center;width:100%;background:var(--surface);color:var(--text);outline:none;box-sizing:border-box">
-      </div>
-
-      <button type="submit" style="width:100%;background:#7C3AED;color:#fff;border:none;border-radius:8px;padding:11px;font-size:14px;font-weight:600;cursor:pointer">
-        Ambil dari Gudang
-      </button>
-    </form>
+    <div class="modal-body">
+      <form action="{{ route('dashboard.agen.distribusi.ambil-gudang') }}" method="POST">
+        @csrf
+        <input type="hidden" name="gudang_stok_id" id="ag_gudang_id">
+        <div class="qty-display">
+          <div class="qty-display-label">Tersedia</div>
+          <div class="qty-display-value" id="ag_tersedia">0</div>
+          <div class="qty-display-label">tabung</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Masukkan ke SJ</label>
+          <select name="sj_header_id" class="form-select">
+            <option value="">-- Pilih SJ Aktif --</option>
+            @foreach(\App\Models\SuratJalanHeader::where('status','aktif')->orderByDesc('tanggal')->get() as $sj)
+              <option value="{{ $sj->id }}">{{ $sj->no_sj }} · {{ $sj->tanggal->format('d/m/Y') }}</option>
+            @endforeach
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Qty Diambil</label>
+          <input type="number" name="qty" id="ag_qty" min="1" class="form-input-lg">
+        </div>
+        <button type="submit" class="btn btn-purple btn-block" style="padding:11px;font-size:14px">
+          Ambil dari Gudang
+        </button>
+      </form>
+    </div>
   </div>
 </div>
 
 {{-- ── MODAL GENDONGAN KE SJ ──────────────────────────────────── --}}
-<div id="modal-gendongan" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);align-items:center;justify-content:center;z-index:300;padding:16px" onclick="document.getElementById('modal-gendongan').style.display='none'">
-  <div style="background:var(--surface);border-radius:16px;width:100%;max-width:400px" onclick="event.stopPropagation()">
-    <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+<div id="modal-gendongan" class="modal-overlay" onclick="this.classList.remove('open')">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <div class="modal-header">
       <div>
-        <h3 style="font-size:15px;font-weight:700;color:var(--text)">Gendongan → SJ Aktif</h3>
+        <h3 class="modal-title">Gendongan → SJ Aktif</h3>
         <p id="gnd_armada_label" style="font-size:12px;color:var(--muted)">Armada</p>
       </div>
-      <button onclick="document.getElementById('modal-gendongan').style.display='none'" style="background:none;border:none;font-size:22px;color:var(--muted);cursor:pointer">×</button>
+      <button class="modal-close" onclick="document.getElementById('modal-gendongan').classList.remove('open')">×</button>
     </div>
-    <form action="{{ route('dashboard.agen.distribusi.konfirmasi-gendongan') }}" method="POST" style="padding:18px 20px">
-      @csrf
-      <input type="hidden" name="stok_armada_id" id="gnd_stok_id">
-
-      <div style="background:#FEF3C7;border-radius:8px;padding:10px;margin-bottom:14px;text-align:center">
-        <p style="font-size:11px;color:#92400E">Gendongan Tersedia</p>
-        <p id="gnd_tersedia" style="font-size:28px;font-weight:700;color:#D97706">0</p>
-        <p style="font-size:11px;color:#92400E">tabung · wajib dihabiskan</p>
-      </div>
-
-      <div style="margin-bottom:14px">
-        <label style="display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:5px">Masukkan ke SJ</label>
-        <select name="sj_header_id"
-                style="width:100%;border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:8px;padding:8px 12px;font-size:13px;outline:none">
-          <option value="">-- Pilih SJ Aktif --</option>
-          @foreach(\App\Models\SuratJalanHeader::where('status','aktif')->orderByDesc('tanggal')->get() as $sj)
-            <option value="{{ $sj->id }}">{{ $sj->no_sj }} · {{ $sj->tanggal->format('d/m/Y') }} · {{ $sj->armada?->no_polisi }}</option>
-          @endforeach
-        </select>
-      </div>
-
-      <div style="margin-bottom:16px">
-        <label style="display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:5px">Qty Gendongan Masuk</label>
-        <input type="number" name="qty_gendongan_masuk" id="gnd_qty" min="1" class="finput"
-               style="border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-size:20px;font-weight:700;text-align:center;width:100%;background:var(--surface);color:var(--text);outline:none;box-sizing:border-box">
-      </div>
-
-      <button type="submit" style="width:100%;background:#D97706;color:#fff;border:none;border-radius:8px;padding:11px;font-size:14px;font-weight:600;cursor:pointer">
-        Konfirmasi Gendongan Masuk
-      </button>
-    </form>
+    <div class="modal-body">
+      <form action="{{ route('dashboard.agen.distribusi.konfirmasi-gendongan') }}" method="POST">
+        @csrf
+        <input type="hidden" name="stok_armada_id" id="gnd_stok_id">
+        <div class="qty-display" style="background:#FEF3C7">
+          <div class="qty-display-label" style="color:#92400E">Gendongan Tersedia</div>
+          <div class="qty-display-value" id="gnd_tersedia" style="color:#D97706">0</div>
+          <div class="qty-display-label" style="color:#92400E">tabung · wajib dihabiskan</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Masukkan ke SJ</label>
+          <select name="sj_header_id" class="form-select">
+            <option value="">-- Pilih SJ Aktif --</option>
+            @foreach(\App\Models\SuratJalanHeader::where('status','aktif')->orderByDesc('tanggal')->get() as $sj)
+              <option value="{{ $sj->id }}">{{ $sj->no_sj }} · {{ $sj->tanggal->format('d/m/Y') }} · {{ $sj->armada?->no_polisi }}</option>
+            @endforeach
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Qty Gendongan Masuk</label>
+          <input type="number" name="qty_gendongan_masuk" id="gnd_qty" min="1" class="form-input-lg">
+        </div>
+        <button type="submit" class="btn btn-warn btn-block" style="padding:11px;font-size:14px">
+          Konfirmasi Gendongan Masuk
+        </button>
+      </form>
+    </div>
   </div>
 </div>
 
@@ -263,16 +289,21 @@ function bukaModalAmbilGudang(id, tersedia, tgl) {
   document.getElementById('ag_tersedia').textContent = tersedia.toLocaleString('id');
   document.getElementById('ag_qty').value = tersedia;
   document.getElementById('ag_qty').max = tersedia;
-  document.getElementById('modal-ambil-gudang').style.display = 'flex';
+  document.getElementById('modal-ambil-gudang').classList.add('open');
 }
-
 function bukaModalGendongan(armadaId, polisi, total, stokId) {
   document.getElementById('gnd_stok_id').value = stokId;
   document.getElementById('gnd_armada_label').textContent = polisi;
   document.getElementById('gnd_tersedia').textContent = total.toLocaleString('id');
   document.getElementById('gnd_qty').value = total;
   document.getElementById('gnd_qty').max = total;
-  document.getElementById('modal-gendongan').style.display = 'flex';
+  document.getElementById('modal-gendongan').classList.add('open');
 }
+// Tutup modal dengan Escape
+document.addEventListener('keydown', e => {
+  if(e.key === 'Escape') {
+    document.querySelectorAll('.modal-overlay.open').forEach(m => m.classList.remove('open'));
+  }
+});
 </script>
 @endpush

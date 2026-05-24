@@ -1,0 +1,17 @@
+<?php
+/**
+ * File ini diletakkan di: public_html/monitor-lpg/index.php
+ * Bukan di public/ — ini untuk redirect ke public/index.php
+ */
+
+// Redirect semua request ke folder public/
+$uri = urldecode(parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH));
+
+// Abaikan request ke file/folder yang benar-benar ada
+if ($uri !== '/' && file_exists(__DIR__.'/public'.$uri)) {
+    return false;
+}
+
+// Forward ke public/index.php
+$_SERVER['SCRIPT_FILENAME'] = __DIR__.'/public/index.php';
+require __DIR__.'/public/index.php';

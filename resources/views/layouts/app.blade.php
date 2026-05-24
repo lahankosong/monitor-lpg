@@ -4,12 +4,65 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="csrf-token" content="{{ csrf_token() }}">
-<title>⛽ LPG Monitor — @yield('title', 'Dashboard')</title>
+<title>Rawarun Tech — @yield('title', 'Dashboard')</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <style>
 /* ── Theme Variables ─────────────────────────────────── */
 /* ── TEMA CERAH: Biru Langit + Orange + Hijau Sage ──── */
+
+/* ── Auto dark mode dari system preference ─────────── */
+/* Aktif ketika pilihan tema = "system" dan OS pakai dark mode */
+@media (prefers-color-scheme: dark) {
+  [data-theme="system"] {
+    --bg:               #070F1C;
+    --surface:          #0D1B2E;
+    --surface-alt:      #112338;
+    --border:           #1E3A5F;
+    --nav-bg:           #0D1B2E;
+    --nav-text:         #7CA4C4;
+    --nav-active:       #38BDF8;
+    --accent:           #0EA5E9;
+    --accent-2:         #FB923C;
+    --accent-3:         #7DB87F;
+    --text:             #E2F0FB;
+    --muted:            #4A7090;
+    --sidebar:          #050D18;
+    --sidebar-text:     #6B9EC0;
+    --sidebar-active:   #38BDF8;
+    --sidebar-accent:   #FB923C;
+    --radius:           8px;
+    --stat-positive:    #7DB87F;
+    --stat-negative:    #F87171;
+    --stat-warning:     #FB923C;
+    --stat-info:        #38BDF8;
+  }
+}
+@media (prefers-color-scheme: light) {
+  [data-theme="system"] {
+    --bg:               #F0F7FF;
+    --surface:          #FFFFFF;
+    --surface-alt:      #E8F4FD;
+    --border:           #BAD4EF;
+    --nav-bg:           #FFFFFF;
+    --nav-text:         #334155;
+    --nav-active:       #0EA5E9;
+    --accent:           #0EA5E9;
+    --accent-2:         #F97316;
+    --accent-3:         #6B9E6E;
+    --text:             #0F2942;
+    --muted:            #5A7A9A;
+    --sidebar:          #0C2340;
+    --sidebar-text:     #A8C5E0;
+    --sidebar-active:   #38BDF8;
+    --sidebar-accent:   #F97316;
+    --radius:           8px;
+    --stat-positive:    #6B9E6E;
+    --stat-negative:    #EF4444;
+    --stat-warning:     #F97316;
+    --stat-info:        #0EA5E9;
+  }
+}
 :root,
 [data-theme="cerah"] {
   --bg:               #F0F7FF;        /* biru langit sangat muda */
@@ -133,7 +186,18 @@ body {
   gap: 0;
   position: sticky;
   top: 0;
-  z-index: 100;
+  z-index: 200;
+  flex-shrink: 0;
+}
+@media (max-width: 768px) {
+  #topnav {
+    padding: 0 10px;
+    height: 44px;
+  }
+  #topnav .desktop-only { display: none !important; }
+  #topnav .nav-group { display: none !important; }
+  #topnav .theme-pills { display: none !important; }
+}index: 100;
   box-shadow: 0 1px 3px rgba(0,0,0,.06);
 }
 [data-theme="modern"] #topnav {
@@ -302,7 +366,22 @@ body {
   flex-direction: column;
   padding: 16px 0;
   overflow-y: auto;
+  transition: width .25s cubic-bezier(.4,0,.2,1);
+  overflow-x: hidden;
 }
+#sidebar.collapsed { width: 52px; }
+#sidebar.collapsed .sidebar-label { display: none; }
+#sidebar.collapsed .sidebar-item-text { display: none; }
+#sidebar.collapsed .sidebar-badge { display: none; }
+#sidebar.collapsed .sidebar-item { justify-content: center; padding: 10px; }
+#sidebar.collapsed .sidebar-icon { width: 20px; height: 20px; opacity: 1; }
+#sidebar-toggle {
+  display: flex; align-items: center; justify-content: flex-end;
+  padding: 0 14px 10px; cursor: pointer; gap: 6px;
+}
+#sidebar.collapsed #sidebar-toggle { justify-content: center; padding: 0 0 10px; }
+#sidebar-toggle svg { color:rgba(255,255,255,.35); transition: transform .25s; }
+#sidebar.collapsed #sidebar-toggle svg { transform: rotate(180deg); }
 .sidebar-section { padding: 0 12px; margin-bottom: 4px; }
 .sidebar-label {
   font-size: 10px;
@@ -394,6 +473,10 @@ body {
   grid-template-columns: repeat(3, 1fr);
   gap: 12px;
 }
+.bottom-more-item.active {
+  background: rgba(14,165,233,.12);
+  color: var(--accent);
+}
 .bottom-more-item {
   display: flex;
   flex-direction: column;
@@ -424,7 +507,7 @@ body {
 @media (max-width: 768px) {
   #sidebar { display: none; }
   #bottomnav { display: block; }
-  #content { padding: 16px; padding-bottom: 76px; }
+  #content { padding: 12px; padding-bottom: 76px; }
   .nav-group.desktop-only { display: none; }
   .theme-pills { display: none; }
   .batch-indicator span { display: none; }
@@ -451,7 +534,7 @@ body {
 
 <!-- ── TOP NAVBAR ─────────────────────────────────────── -->
 <nav id="topnav">
-  <a href="{{ route('dashboard.index') }}" class="brand">⛽ LPG Monitor</a>
+  <a href="{{ route('dashboard.index') }}" class="brand">RUNTech</a>
   @php $__agen = \App\Models\Agen::profil(); @endphp
   @if($__agen?->nama_agen)
   <div style="position:absolute;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:8px;pointer-events:none">
@@ -551,6 +634,10 @@ body {
       </button>
       <button class="theme-pill" data-t="classic">Classic</button>
       <button class="theme-pill" data-t="modern">Modern</button>
+      <button class="theme-pill" data-t="system" title="Ikuti tema sistem (OS dark/light mode)" style="display:flex;align-items:center;gap:3px">
+        <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+        Auto
+      </button>
     </div>
 
     {{-- Mobile hamburger --}}
@@ -652,6 +739,12 @@ body {
 
   <!-- Sidebar (desktop) -->
   <aside id="sidebar">
+    {{-- Toggle collapse --}}
+    <div id="sidebar-toggle" onclick="toggleSidebar()" title="Buka/tutup sidebar">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <polyline points="15 18 9 12 15 6"/>
+      </svg>
+    </div>
     @include('layouts.partials.sidebar')
 
     {{-- Batch status di sidebar --}}
@@ -675,43 +768,107 @@ body {
 <!-- ── MOBILE BOTTOM NAV ──────────────────────────────── -->
 <nav id="bottomnav">
   <div class="bottomnav-inner">
-    <a href="{{ route('dashboard.index') }}"
-       class="bottom-item {{ request()->routeIs('dashboard.index') ? 'active' : '' }}">
-      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-      Dashboard
-    </a>
-    <a href="{{ route('dashboard.nik.list') }}"
-       class="bottom-item {{ request()->routeIs('dashboard.nik.*') ? 'active' : '' }}">
-      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
-      NIK
-    </a>
-    <a href="{{ route('dashboard.akun.index') }}"
-       class="bottom-item {{ request()->routeIs('dashboard.akun.*') ? 'active' : '' }}">
-      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-      Scrape
-    </a>
-    <button class="bottom-item" onclick="toggleMobileMore()">
-      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
-      Lainnya
-    </button>
+    @if(auth()->user()?->isDriver())
+      {{-- Driver: menu khusus langsung ke halaman driver --}}
+      <a href="{{ route('dashboard.agen.driver.index') }}"
+         class="bottom-item {{ request()->routeIs('dashboard.agen.driver.index') ? 'active' : '' }}">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M1 3h15v13H1z"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+        Realisasi
+      </a>
+      <a href="{{ route('dashboard.agen.driver.histori') }}"
+         class="bottom-item {{ request()->routeIs('dashboard.agen.driver.histori') ? 'active' : '' }}">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="10"/></svg>
+        Histori
+      </a>
+      <a href="{{ route('dashboard.agen.driver.stok') }}"
+         class="bottom-item {{ request()->routeIs('dashboard.agen.driver.stok') ? 'active' : '' }}">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+        Stok
+      </a>
+      <form action="{{ route('logout') }}" method="POST" style="display:contents">
+        @csrf
+        <button type="submit" class="bottom-item">
+          <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          Keluar
+        </button>
+      </form>
+    @else
+      {{-- Non-driver: menu lengkap --}}
+      <a href="{{ route('dashboard.index') }}"
+         class="bottom-item {{ request()->routeIs('dashboard.index') ? 'active' : '' }}">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        Dashboard
+      </a>
+      <a href="{{ route('dashboard.agen.distribusi.index') }}"
+         class="bottom-item {{ request()->routeIs('dashboard.agen.distribusi.index') ? 'active' : '' }}">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M1 3h15v13H1z"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+        Realisasi
+      </a>
+      <a href="{{ route('dashboard.agen.akuntansi.brimola.index') }}"
+         class="bottom-item {{ request()->routeIs('dashboard.agen.akuntansi.brimola.*') ? 'active' : '' }}">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+        BRImola
+      </a>
+      <button class="bottom-item" onclick="toggleMobileMore()">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        Menu
+      </button>
+    @endif
   </div>
 </nav>
 
-<!-- Mobile more menu -->
+<!-- Mobile more menu — sesuai sidebar non-driver -->
 <div id="mobileMoreMenu" class="bottom-more-menu" style="display:none">
-  <p style="font-size:11px;color:var(--muted);margin-bottom:12px;font-weight:600;text-transform:uppercase;letter-spacing:.06em">Menu Lainnya</p>
+  <p style="font-size:11px;color:var(--muted);margin-bottom:12px;font-weight:600;text-transform:uppercase;letter-spacing:.06em">Menu Lengkap</p>
   <div class="bottom-more-grid">
-    <a href="{{ route('dashboard.token.input') }}" class="bottom-more-item">
+    {{-- MAP --}}
+    <a href="{{ route('dashboard.nik.list') }}" class="bottom-more-item {{ request()->routeIs('dashboard.nik.*') ? 'active' : '' }}">
+      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+      Monitor NIK
+    </a>
+    <a href="{{ route('dashboard.akun.index') }}" class="bottom-more-item {{ request()->routeIs('dashboard.akun.*','dashboard.batch.*') ? 'active' : '' }}">
+      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
+      Scrape Data
+    </a>
+    {{-- Operasional --}}
+    <a href="{{ route('dashboard.agen.operasional.kitir.index') }}" class="bottom-more-item {{ request()->routeIs('dashboard.agen.operasional.kitir*') ? 'active' : '' }}">
+      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg>
+      Kitir
+    </a>
+    <a href="{{ route('dashboard.agen.operasional.sj.index') }}" class="bottom-more-item {{ request()->routeIs('dashboard.agen.operasional.sj*') ? 'active' : '' }}">
+      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+      Surat Jalan
+    </a>
+    {{-- Distribusi --}}
+    <a href="{{ route('dashboard.agen.distribusi.gudang.index') }}" class="bottom-more-item {{ request()->routeIs('dashboard.agen.distribusi.gudang*') ? 'active' : '' }}">
+      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><rect x="9" y="12" width="6" height="9"/></svg>
+      Gudang
+    </a>
+    <a href="{{ route('dashboard.agen.distribusi.stok') }}" class="bottom-more-item {{ request()->routeIs('dashboard.agen.distribusi.stok') ? 'active' : '' }}">
+      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+      Stok Armada
+    </a>
+    {{-- Akuntansi --}}
+    <a href="{{ route('dashboard.agen.akuntansi.tebusan.index') }}" class="bottom-more-item {{ request()->routeIs('dashboard.agen.akuntansi.tebusan*') ? 'active' : '' }}">
+      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+      Tebusan
+    </a>
+    <a href="{{ route('dashboard.agen.akuntansi.brimola.audit.index') }}" class="bottom-more-item {{ request()->routeIs('dashboard.agen.akuntansi.brimola.audit*') ? 'active' : '' }}">
+      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 11H6a3 3 0 0 0-3 3v3a3 3 0 0 0 3 3h3"/><path d="M15 13l2 2 4-4"/><circle cx="12" cy="6" r="4"/></svg>
+      Audit Bayar
+    </a>
+    <a href="{{ route('dashboard.agen.akuntansi.kas.index') }}" class="bottom-more-item {{ request()->routeIs('dashboard.agen.akuntansi.kas*') ? 'active' : '' }}">
+      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+      Kas Kecil
+    </a>
+    {{-- Sistem --}}
+    <a href="{{ route('dashboard.token.input') }}" class="bottom-more-item {{ request()->routeIs('dashboard.token.*') ? 'active' : '' }}">
       <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
       Token
     </a>
-    <a href="#" class="bottom-more-item" style="opacity:.5">
-      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M1 3h15v13H1z"/><path d="M16 8h4l3 3v5h-7V8z"/></svg>
-      Distribusi
-    </a>
-    <a href="#" class="bottom-more-item" style="opacity:.5">
+    <a href="{{ route('dashboard.agen.db.pangkalan') }}" class="bottom-more-item {{ request()->routeIs('dashboard.agen.db.pangkalan*') ? 'active' : '' }}">
       <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
-      Gudang
+      Database
     </a>
   </div>
   <button onclick="toggleMobileMore()" style="width:100%;margin-top:12px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--muted);font-size:13px;cursor:pointer">
@@ -737,6 +894,27 @@ document.querySelectorAll('.theme-pill').forEach(p => {
     document.querySelectorAll('.theme-pill').forEach(x => x.classList.toggle('active', x.dataset.t === t));
   });
 });
+// Sync system dark mode secara real-time jika tema = "system"
+if (savedTheme === 'system') {
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    // CSS sudah handle via @media, tidak perlu JS — tapi force repaint
+    document.documentElement.setAttribute('data-theme', 'system');
+  });
+}
+
+// ── Sidebar collapse ─────────────────────────────────
+function toggleSidebar() {
+  const s = document.getElementById('sidebar');
+  const collapsed = s.classList.toggle('collapsed');
+  localStorage.setItem('sidebar-collapsed', collapsed ? '1' : '0');
+}
+// Restore state
+(function() {
+  const s = document.getElementById('sidebar');
+  if (s && localStorage.getItem('sidebar-collapsed') === '1') {
+    s.classList.add('collapsed');
+  }
+})();
 
 // ── Mobile more menu ──────────────────────────────────
 function toggleMobileMore() {

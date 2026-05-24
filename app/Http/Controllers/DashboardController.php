@@ -2,235 +2,209 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Transaction;
-use App\Models\NikViolation;
-use App\Models\DailySummary;
+use App\Models\Agen;
+use App\Models\SuratJalanHeader;
+use App\Models\KitirHeader;
 use App\Models\PangkalanToken;
-use App\Models\PangkalanSession;
-use App\Models\ScrapeLog;
-use App\Services\NikMonitorService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class DashboardController extends Controller
 {
-    public function __construct(private NikMonitorService $monitor) {}
-
-    // ── Dashboard utama ───────────────────────────────────────────
-
     public function index(Request $request)
     {
-        $from        = $request->get('from', now()->startOfMonth()->toDateString());
-        $to          = $request->get('to',   now()->toDateString());
-        $minInterval = (int) $request->get('interval', 7);
-        $pangkalanId = $request->get('pangkalan_id', '');
+        $bulan = $request->get('bulan', now()->month);
+        $tahun = $request->get('tahun', now()->year);
+        $dari  = Carbon::create($tahun, $bulan, 1)->startOfMonth();
+        $sampai= Carbon::create($tahun, $bulan, 1)->endOfMonth();
 
-        $query = Transaction::dateRange($from, $to);
-        if ($pangkalanId) $query->where('pangkalan_id', $pangkalanId);
+        // ── DISTRIBUSI ────────────────────────────────────────────
+        // SJ bulan ini
+        $sjBulanIni  = SuratJalanHeader::whereBetween('tanggal', [$dari, $sampai])->count();
+        $sjSelesai   = SuratJalanHeader::whereBetween('tanggal', [$dari, $sampai])
+                        ->where('status','selesai')->count();
+        $sjAktif     = SuratJalanHeader::where('status','jalan')->count();
 
-        $txns   = $query->orderBy('transaction_date')->get();
-        $groups = $txns->groupBy(fn($t) => $t->nationality_id . '||' . $t->name)
-                       ->map(fn($g) => $this->monitor->analyzeIndividu($g));
+        // Total DO bulan ini
+        $totalDO     = SuratJalanHeader::whereBetween('tanggal', [$dari, $sampai])
+                        ->sum('qty_refil');
 
-        $nikStatus  = $this->monitor->nikStatusSummary($groups);
-        $totalNik   = $groups->count();
+        // Total terkirim ke pangkalan
+        $totalTerkirim = DB::table('surat_jalan_details as d')
+            ->join('surat_jalan_headers as h', 'd.header_id', '=', 'h.id')
+            ->whereBetween('h.tanggal', [$dari, $sampai])
+            ->sum('d.qty_terima');
 
-        $summaryQ = DailySummary::whereBetween('summary_date', [$from, $to]);
-        if ($pangkalanId) $summaryQ->where('pangkalan_id', $pangkalanId);
-        $summary     = $summaryQ->get();
-        $totalSold   = $summary->sum('sold');
-        $totalGross  = $summary->sum('gross');
-        $totalProfit = $summary->sum('profit');
+        // Realisasi hari ini
+        $sjHariIni   = SuratJalanHeader::where('tanggal', today())
+                        ->where('status','jalan')->count();
 
-        $openViolations = NikViolation::unresolved()->orderBy('severity', 'desc')->limit(10)->get();
+        // Kitir bulan ini
+        $kitirBulanIni = KitirHeader::whereBetween('tanggal', [$dari, $sampai])->count();
 
-        $chartDays = collect();
-        for ($i = 6; $i >= 0; $i--) {
-            $date = now()->subDays($i)->toDateString();
-            $q    = Transaction::where('transaction_date', $date);
-            if ($pangkalanId) $q->where('pangkalan_id', $pangkalanId);
-            $chartDays->push([
-                'date'  => $date,
-                'label' => Carbon::parse($date)->format('d/m'),
-                'sold'  => DailySummary::where('summary_date', $date)
-                    ->when($pangkalanId, fn($q) => $q->where('pangkalan_id', $pangkalanId))
-                    ->sum('sold'),
-                'txn'   => $q->count(),
+        // ── KEUANGAN ──────────────────────────────────────────────
+        // Tebusan bulan ini
+        $tebusanBulan = DB::table('tebusan_headers')
+            ->whereBetween('tanggal', [$dari, $sampai])
+            ->sum('total_bayar');
+
+        // BRImola saldo
+        $brimolaIn  = DB::table('brimola_logs')->where('tipe','masuk')->sum('jumlah');
+        $brimolaOut = DB::table('brimola_logs')->where('tipe','keluar')->sum('jumlah');
+        $brimolaKum = $brimolaIn - $brimolaOut;
+
+        // Piutang kerjasama outstanding
+        $piutangOut = DB::table('piutang_kerjasama')
+            ->where('status','belum_lunas')->sum('sisa_piutang');
+
+        // Kas kecil saldo
+        $kasIn  = DB::table('kas_kecil')->where('jenis','masuk')->sum('jumlah');
+        $kasOut = DB::table('kas_kecil')->where('jenis','keluar')->sum('jumlah');
+        $kasKecil = $kasIn - $kasOut;
+
+        // Tebusan besok (perlu bayar)
+        $tebusanBesok = DB::table('kitir_headers')
+            ->where('tanggal', today()->addDay()->toDateString())
+            ->sum('qty_do');
+
+        // ── GUDANG & TABUNG ───────────────────────────────────────
+        $bufferKosong = max(0, (int)(
+            DB::table('gudang_tabung_kosong')->where('jenis','masuk')->sum('qty') -
+            DB::table('gudang_tabung_kosong')->where('jenis','keluar')->sum('qty')
+        ));
+        $tabungIsi = max(0, (int)(
+            DB::table('gudang_tabung_isi')->where('jenis','masuk')->sum('qty') -
+            DB::table('gudang_tabung_isi')->where('jenis','keluar')->sum('qty')
+        ));
+        $tabungDiArmada = max(0, (int)(
+            DB::table('armada_tabung')
+                ->selectRaw("SUM(CASE WHEN jenis='masuk' THEN qty ELSE -qty END) as s")
+                ->value('s') ?? 0
+        ));
+        $totalPinjaman = (int)DB::table('pinjaman_tabung')
+            ->where('status','aktif')->sum('qty_aktif');
+        $totalKepemilikan = $bufferKosong + $tabungIsi + $tabungDiArmada + $totalPinjaman;
+
+        // ── NOTIFIKASI / ALERT ────────────────────────────────────
+        $alerts = collect();
+
+        // 1. Pinjaman tabung hampir kadaluarsa (30 hari)
+        $pinjamanHampir = DB::table('pinjaman_tabung as pt')
+            ->leftJoin('pangkalans as p','pt.pangkalan_id','=','p.id')
+            ->where('pt.status','aktif')
+            ->where('pt.tgl_berlaku_sampai','<=', now()->addDays(30)->toDateString())
+            ->select('pt.*','p.nama_pangkalan')
+            ->orderBy('pt.tgl_berlaku_sampai')
+            ->get();
+        foreach ($pinjamanHampir as $p) {
+            $sisa = Carbon::parse($p->tgl_berlaku_sampai)->diffInDays(now());
+            $alerts->push([
+                'tipe'  => 'warning',
+                'icon'  => '📄',
+                'judul' => 'Perpanjang Perjanjian',
+                'pesan' => "{$p->nama_pangkalan} — sisa {$sisa} hari (jatuh tempo ".
+                           Carbon::parse($p->tgl_berlaku_sampai)->format('d/m/Y').")",
+                'url'   => route('dashboard.agen.distribusi.gudang.index'),
             ]);
         }
 
-        $lastScrape  = ScrapeLog::latest('scraped_at')->first();
-        $pangkalans  = $this->getPangkalanList();
+        // 2. Uang kerjasama yang belum dibayar
+        $kerjasamaBelum = DB::table('piutang_kerjasama as pk')
+            ->leftJoin('pangkalans as p','pk.pangkalan_id','=','p.id')
+            ->where('pk.status','belum_lunas')
+            ->where('pk.jatuh_tempo','<=', now()->addDays(7)->toDateString())
+            ->select('pk.*','p.nama_pangkalan')
+            ->orderBy('pk.jatuh_tempo')
+            ->limit(5)->get();
+        foreach ($kerjasamaBelum as $k) {
+            $alerts->push([
+                'tipe'  => 'danger',
+                'icon'  => '💳',
+                'judul' => 'Uang Kerjasama Jatuh Tempo',
+                'pesan' => "{$k->nama_pangkalan} — Rp ".number_format($k->sisa_piutang).
+                           " (jatuh tempo ".Carbon::parse($k->jatuh_tempo)->format('d/m/Y').")",
+                'url'   => route('dashboard.agen.akuntansi.piutang.index'),
+            ]);
+        }
 
-        return view('dashboard.index', compact(
-            'nikStatus', 'totalNik', 'from', 'to', 'minInterval',
-            'totalSold', 'totalGross', 'totalProfit',
-            'openViolations', 'chartDays', 'lastScrape',
-            'pangkalans', 'pangkalanId'
-        ));
-    }
+        // 3. BRImola yang perlu diverifikasi
+        $brimolaUnverif = DB::table('brimola_logs')
+            ->where('status','pending')->count();
+        if ($brimolaUnverif > 0) {
+            $alerts->push([
+                'tipe'  => 'info',
+                'icon'  => '🏦',
+                'judul' => 'BRImola Belum Diverifikasi',
+                'pesan' => "{$brimolaUnverif} transaksi menunggu verifikasi",
+                'url'   => route('dashboard.agen.akuntansi.brimola.index'),
+            ]);
+        }
 
-    // ── Monitor NIK ───────────────────────────────────────────────
+        // 4. Kitir/DO besok
+        if ($tebusanBesok > 0) {
+            $hargaRefil = DB::table('referensi_harga')
+                ->where('is_active',true)->value('harga_refil') ?? 0;
+            $estimasiBayar = $tebusanBesok * $hargaRefil;
+            $alerts->push([
+                'tipe'  => 'info',
+                'icon'  => '📦',
+                'judul' => 'Tebusan DO Besok',
+                'pesan' => "Estimasi ".number_format($tebusanBesok)." tabung — ".
+                           "Rp ".number_format($estimasiBayar),
+                'url'   => route('dashboard.agen.akuntansi.tebusan.index'),
+            ]);
+        }
 
-    public function nikList(Request $request)
-    {
-        $from         = $request->get('from', now()->startOfMonth()->toDateString());
-        $to           = $request->get('to',   now()->toDateString());
-        $minInterval  = (int) $request->get('interval', 7);
-        $search       = $request->get('search', '');
-        $filterStatus = $request->get('status', '');
-        $pangkalanId  = $request->get('pangkalan_id', '');
-        $filterKat    = $request->get('kategori', '');
+        // 5. Buffer kosong rendah
+        if ($bufferKosong < 100) {
+            $alerts->push([
+                'tipe'  => 'danger',
+                'icon'  => '⚠️',
+                'judul' => 'Buffer Tabung Kosong Rendah',
+                'pesan' => "Hanya {$bufferKosong} tabung kosong di gudang (minimum 100)",
+                'url'   => route('dashboard.agen.distribusi.gudang.index'),
+            ]);
+        }
 
-        $query = Transaction::dateRange($from, $to)
-            ->when($search, fn($q) => $q->where(function ($q) use ($search) {
-                $q->where('nationality_id', 'like', "%{$search}%")
-                  ->orWhere('name', 'like', "%{$search}%");
-            }))
-            ->when($pangkalanId, fn($q) => $q->where('pangkalan_id', $pangkalanId))
-            ->when($filterKat,   fn($q) => $q->where('category', 'like', "%{$filterKat}%"))
-            ->orderBy('transaction_date')
+        // ── GRAFIK distribusi 30 hari ─────────────────────────────
+        $grafikData = collect();
+        for ($i = 29; $i >= 0; $i--) {
+            $tgl = now()->subDays($i)->toDateString();
+            $grafikData->push([
+                'tgl'      => Carbon::parse($tgl)->format('d/m'),
+                'terkirim' => (int)DB::table('surat_jalan_details as d')
+                    ->join('surat_jalan_headers as h','d.header_id','=','h.id')
+                    ->where('h.tanggal', $tgl)->sum('d.qty_terima'),
+            ]);
+        }
+
+        // ── GENDONGAN AKTIF ────────────────────────────────────────
+        $gendongan = DB::table('stok_armada as sa')
+            ->join('armadas as a','sa.armada_id','=','a.id')
+            ->where('sa.status','jalan')
+            ->where('sa.sisa_akhir','>',0)
+            ->select('a.no_polisi','sa.sisa_akhir')
             ->get();
 
-        // Analisis semua individu
-        $groups = $query->groupBy(fn($t) => $t->nationality_id . '||' . $t->name)
-                        ->map(fn($g) => $this->monitor->analyzeIndividu($g, $minInterval));
-
-        // Cek pelanggaran pengecer di level pangkalan
-        $pengecerWarnings = $this->monitor->checkPengecer($query);
-
-        // Filter status
-        if ($filterStatus) {
-            $groups = $groups->filter(fn($n) => $n['status'] === $filterStatus);
-        }
-
-        // Urutkan: alert → warn → new → aman
-        $order  = ['alert' => 0, 'warn' => 1, 'new' => 2, 'aman' => 3];
-        $groups = $groups->sortBy(fn($n) => $order[$n['status']] ?? 9)->values();
-
-        $pangkalans = $this->getPangkalanList();
-
-        return view('dashboard.nik', compact(
-            'groups', 'from', 'to', 'minInterval', 'search',
-            'filterStatus', 'pangkalanId', 'filterKat',
-            'pangkalans', 'pengecerWarnings'
-        ));
-    }
-
-    // ── Detail NIK ────────────────────────────────────────────────
-
-    public function nikDetail(Request $request)
-    {
-        $from = $request->get('from', now()->subMonths(3)->toDateString());
-        $to   = $request->get('to',   now()->toDateString());
-        $nik  = $request->get('nik');
-        $nama = $request->get('nama');
-
-        abort_if(! $nik || ! $nama, 400);
-
-        $txns = Transaction::where('nationality_id', $nik)
-            ->where('name', $nama)
-            ->dateRange($from, $to)
-            ->orderBy('transaction_at')
-            ->get();
-
-        abort_if($txns->isEmpty(), 404);
-
-        $minInterval = (int) $request->get('interval', 7);
-        $analysis    = $this->monitor->analyzeIndividu($txns, $minInterval);
-        $pangkalans  = $this->getPangkalanList();
-
-        return view('dashboard.nik-detail', compact(
-            'txns', 'nik', 'nama', 'analysis', 'from', 'to', 'minInterval', 'pangkalans'
-        ));
-    }
-
-    // ── Ekspor CSV ────────────────────────────────────────────────
-
-    public function exportCsv(Request $request)
-    {
-        $from        = $request->get('from', now()->startOfMonth()->toDateString());
-        $to          = $request->get('to',   now()->toDateString());
-        $pangkalanId = $request->get('pangkalan_id', '');
-
-        $txns = Transaction::dateRange($from, $to)
-            ->when($pangkalanId, fn($q) => $q->where('pangkalan_id', $pangkalanId))
-            ->orderBy('transaction_date')->get();
-
-        $headers = [
-            'Content-Type'        => 'text/csv; charset=UTF-8',
-            'Content-Disposition' => "attachment; filename=transaksi_{$from}_{$to}.csv",
-        ];
-
-        $callback = function () use ($txns) {
-            $out = fopen('php://output', 'w');
-            fprintf($out, chr(0xEF).chr(0xBB).chr(0xBF));
-            fputcsv($out, ['Pangkalan','NIK (sensor)','Nama','Kategori','Tabung','Tanggal','Waktu']);
-            foreach ($txns as $t) {
-                fputcsv($out, [
-                    $t->store_name ?? $t->pangkalan_id,
-                    $t->nationality_id,
-                    $t->name,
-                    $t->category,
-                    $t->total,
-                    $t->transaction_date->format('Y-m-d'),
-                    Carbon::parse($t->transaction_at)->format('H:i:s'),
-                ]);
-            }
-            fclose($out);
-        };
-
-        return response()->stream($callback, 200, $headers);
-    }
-
-    // ── Trigger scrape manual ─────────────────────────────────────
-
-    public function triggerScrape(Request $request)
-    {
-        $request->validate(['from' => 'required|date', 'to' => 'required|date']);
-        $tokenRecord = PangkalanToken::where('is_active', true)->latest()->first();
-        if (! $tokenRecord) {
-            return back()->withErrors(['token' => 'Belum ada token aktif.']);
-        }
-        \App\Jobs\ScrapeTransactionsJob::dispatch($request->from, $request->to, $tokenRecord->pangkalan_id);
-        return back()->with('success', "Scraping dijadwalkan: {$request->from} s/d {$request->to}");
-    }
-
-    public function saveToken(Request $request)
-    {
-        $request->validate(['token' => 'required|string', 'label' => 'nullable|string']);
-        $token = trim(str_replace('Bearer ', '', $request->token));
-        try {
-            $parts   = explode('.', $token);
-            $payload = json_decode(base64_decode(
-                str_pad(strtr($parts[1], '-_', '+/'),
-                strlen($parts[1]) + (4 - strlen($parts[1]) % 4) % 4, '=')
-            ), true);
-            $pangkalanId = $payload['sub'] ?? null;
-            $expireAt    = isset($payload['exp']) ? Carbon::createFromTimestamp($payload['exp']) : null;
-        } catch (\Exception $e) {
-            return back()->withErrors(['token' => 'Token tidak valid.']);
-        }
-        PangkalanToken::updateOrCreate(
-            ['pangkalan_id' => $pangkalanId],
-            ['label' => $request->label, 'token' => $token,
-             'token_expires_at' => $expireAt, 'is_active' => true]
+        $bulanList = collect(range(1,12))->mapWithKeys(fn($m) =>
+            [$m => Carbon::create()->month($m)->translatedFormat('F')]
         );
-        return back()->with('success', 'Token disimpan.');
-    }
 
-    // ── Helper ───────────────────────────────────────────────────
-
-    /**
-     * Daftar pangkalan untuk dropdown — diurutkan alfabet
-     */
-    private function getPangkalanList(): \Illuminate\Support\Collection
-    {
-        return PangkalanToken::orderBy('label')
-            ->get(['pangkalan_id', 'label'])
-            ->map(fn($p) => [
-                'id'    => $p->pangkalan_id,
-                'label' => $p->label ?: substr($p->pangkalan_id, 0, 8) . '...',
-            ]);
+        return view('dashboard.ikhtisar', compact(
+            // Distribusi
+            'sjBulanIni','sjSelesai','sjAktif','sjHariIni',
+            'totalDO','totalTerkirim','kitirBulanIni','gendongan',
+            // Keuangan
+            'tebusanBulan','brimolaKum','piutangOut','kasKecil','tebusanBesok',
+            // Gudang
+            'bufferKosong','tabungIsi','tabungDiArmada','totalPinjaman','totalKepemilikan',
+            // Alerts
+            'alerts',
+            // Grafik
+            'grafikData',
+            // Filter
+            'bulan','tahun','bulanList'
+        ));
     }
 }

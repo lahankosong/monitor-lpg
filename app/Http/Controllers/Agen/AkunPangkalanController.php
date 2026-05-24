@@ -239,8 +239,54 @@ class AkunPangkalanController extends Controller
             return $this->scrapeWithToken($token, $akun->label, $from, $to);
         }
 
-        // ── MODE 2: Tidak ada token → trigger GitHub Actions ─────────
-        return $this->triggerGithubActions($akun->username, $akun->label, $from, $to);
+        // ── MODE 2: Pakai Python Playwright (lokal/VPS saja) ─────────
+        $scriptPath = $this->scriptsPath . '/auto_login_batch.py';
+        $hasPython  = file_exists($scriptPath);
+        $isWindows  = strtoupper(substr(PHP_OS, 0, 3)) === 'WIN';
+
+        if (!$hasPython) {
+            // Tidak ada Python — trigger GitHub Actions untuk login akun ini
+            return $this->triggerGithubActions($akun->username, $akun->label, $from, $to);
+        }
+
+        // Ada Python — jalankan (lokal/VPS)
+        $password = null;
+        if (!empty($akun->password_encrypted)) {
+            try {
+                $password = \Illuminate\Support\Facades\Crypt::decryptString($akun->password_encrypted);
+            } catch (\Exception $e) {
+                return response()->json(['success' => false,
+                    'message' => 'Password tidak bisa didekripsi. Edit akun dan simpan ulang.']);
+            }
+        }
+
+        if (!$password) {
+            return response()->json(['success' => false,
+                'message' => 'Password belum diisi untuk akun ini.']);
+        }
+
+        $accounts        = [['label' => $akun->label, 'email' => $akun->username, 'pin' => $password]];
+        $tempAccountFile = storage_path('app/temp_account_' . $id . '.json');
+        file_put_contents($tempAccountFile, json_encode($accounts, JSON_UNESCAPED_UNICODE));
+
+        $resultFile = storage_path('app/single_result_' . $id . '.json');
+        if (file_exists($resultFile)) unlink($resultFile);
+
+        $envPrefix = $isWindows ? 'set PYTHONUNBUFFERED=1 &&' : 'PYTHONUNBUFFERED=1';
+        $cmd = sprintf(
+            '%s %s %s --accounts %s --from %s --to %s --output %s 2>&1',
+            $envPrefix,
+            escapeshellcmd($this->pythonPath),
+            escapeshellarg($scriptPath),
+            escapeshellarg($tempAccountFile),
+            escapeshellarg($from),
+            escapeshellarg($to),
+            escapeshellarg($resultFile),
+        );
+
+        set_time_limit(180);
+        ini_set('max_execution_time', 180);
+        exec($cmd, $output, $exitCode);
 
         // Hapus temp file
         if (file_exists($tempAccountFile)) unlink($tempAccountFile);
@@ -453,7 +499,7 @@ class AkunPangkalanController extends Controller
                 'Authorization' => "Bearer {$githubToken}",
                 'Accept'        => 'application/vnd.github+json',
                 'X-GitHub-Api-Version' => '2022-11-28',
-            ])->post("https://api.github.com/repos/{$githubRepo}/actions/workflows/scrape-tokens.yml/dispatches", [
+            ])->post("https://api.github.com/repos/{$githubRepo}/actions/workflows/scrape-tokens.yaml/dispatches", [
                 'ref'    => 'main',
                 'inputs' => [
                     'date_from'    => $from,
@@ -465,9 +511,9 @@ class AkunPangkalanController extends Controller
             if ($response->status() === 204) {
                 return response()->json([
                     'success' => true,
-                    'message' => "🚀 GitHub Actions dipicu untuk {$label}. Token akan tersedia ~2 menit. Klik Scrape lagi setelah itu.",
+                    'message' => "🚀 GitHub Actions dipicu untuk {$label}. ".
+                                 "Token akan tersedia ~2 menit. Klik Scrape lagi setelah itu.",
                     'mode'    => 'github_actions',
-                    'saved'   => 0,
                 ]);
             }
 

@@ -50,9 +50,9 @@
 
   @php
     $tokenAktif  = \App\Models\PangkalanToken::where('is_active',true)
-                     ->where('token_expires_at','>',now())->count();
+                     ->where('token_expires_at','>',now()->utc())->count();
     $tokenExpired = \App\Models\PangkalanToken::where('is_active',true)
-                     ->where('token_expires_at','<=',now())->count();
+                     ->where('token_expires_at','<=',now()->utc())->count();
   @endphp
   @php
     $passTidakAda = \App\Models\PangkalanSession::where('is_active', true)

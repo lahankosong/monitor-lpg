@@ -2,14 +2,20 @@
 @section('title', 'BRImola — Pembayaran')
 
 @section('content')
+@include('layouts.partials.distribusi-styles')
+
 <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;margin-bottom:20px">
   <div>
     <h1 style="font-size:20px;font-weight:700;color:var(--text)">BRImola</h1>
     <p style="font-size:12px;color:var(--muted)">Pembayaran pangkalan via BRI Virtual Account</p>
   </div>
   <div style="display:flex;gap:8px;flex-wrap:wrap">
-    <button onclick="openModal('modal-import')"
+    <button onclick="openModal('modal-manual')"
             style="background:var(--accent);color:#fff;border:none;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:500;cursor:pointer">
+      + Input Manual
+    </button>
+    <button onclick="openModal('modal-import')"
+            style="border:1px solid var(--border);color:var(--text);background:var(--surface);border-radius:8px;padding:8px 14px;font-size:13px;cursor:pointer">
       ↑ Import Excel
     </button>
     <a href="{{ route('dashboard.agen.akuntansi.brimola.export', ['bulan'=>$bulan,'tahun'=>$tahun]) }}"
@@ -235,6 +241,107 @@
 </div>
 @endif
 
+{{-- MODAL INPUT MANUAL --}}
+<div id="modal-manual" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);align-items:center;justify-content:center;z-index:300;padding:16px" onclick="closeModal('modal-manual')">
+  <div style="background:var(--surface);border-radius:16px;width:100%;max-width:480px;max-height:90vh;overflow-y:auto" onclick="event.stopPropagation()">
+    <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <h3 style="font-size:15px;font-weight:700;color:var(--text)">Input Manual BRImola</h3>
+        <p style="font-size:12px;color:var(--muted);margin-top:2px">Catat pembayaran pangkalan secara manual</p>
+      </div>
+      <button onclick="closeModal('modal-manual')" style="background:none;border:none;font-size:22px;color:var(--muted);cursor:pointer">×</button>
+    </div>
+    <form action="{{ route('dashboard.agen.akuntansi.brimola.store') }}" method="POST" style="padding:20px">
+      @csrf
+
+      {{-- Pangkalan --}}
+      <div style="margin-bottom:14px">
+        <label style="display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:5px">Pangkalan *</label>
+        <select name="pangkalan_id" id="man-pangkalan" required onchange="isiNoBriva(this)"
+                style="width:100%;border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:8px;padding:8px 12px;font-size:13px;outline:none">
+          <option value="">-- Pilih Pangkalan --</option>
+          @foreach($pangkalans as $p)
+            <option value="{{ $p->id }}" data-briva="{{ $p->no_briva_prefix ?? '' }}">
+              {{ $p->nama_pangkalan }} @if(!empty($p->no_briva_prefix)) · {{ $p->no_briva_prefix }} @endif
+            </option>
+          @endforeach
+        </select>
+      </div>
+
+      {{-- Tanggal & No BRIVA --}}
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
+        <div>
+          <label style="display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:5px">Tanggal Bayar *</label>
+          <input type="datetime-local" name="tanggal_bayar" required
+                 value="{{ now()->format('Y-m-d') }}T{{ now()->format('H:i') }}"
+                 style="width:100%;border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:8px;padding:8px 10px;font-size:13px;outline:none;box-sizing:border-box">
+        </div>
+        <div>
+          <label style="display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:5px">No BRIVA</label>
+          <input type="text" name="no_briva" id="man-briva" maxlength="20" placeholder="Opsional"
+                 style="width:100%;border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:8px;padding:8px 10px;font-size:13px;outline:none;box-sizing:border-box">
+        </div>
+      </div>
+
+      {{-- Tabung & Harga --}}
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
+        <div>
+          <label style="display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:5px">Jumlah Tabung *</label>
+          <input type="number" name="jumlah_tabung" id="man-tabung" required min="1" placeholder="0"
+                 oninput="hitungTotalManual()"
+                 style="width:100%;border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:8px;padding:8px 10px;font-size:15px;font-weight:700;outline:none;box-sizing:border-box">
+        </div>
+        <div>
+          <label style="display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:5px">
+            Harga / Tabung (Rp)
+            <span id="man-harga-src" style="font-size:10px;color:var(--accent);font-weight:400;margin-left:4px"></span>
+          </label>
+          <input type="number" name="harga_per_tabung" id="man-harga" placeholder="Memuat..."
+                 oninput="hitungTotalManual()"
+                 style="width:100%;border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:8px;padding:8px 10px;font-size:15px;font-weight:700;outline:none;box-sizing:border-box">
+        </div>
+      </div>
+
+      {{-- Total otomatis --}}
+      <div style="margin-bottom:14px">
+        <label style="display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:5px">Total Bayar (Rp)</label>
+        <div style="background:var(--bg);border-radius:8px;padding:10px 14px;display:flex;justify-content:space-between;align-items:center">
+          <span style="font-size:12px;color:var(--muted)">Otomatis = tabung × harga</span>
+          <span id="man-total-display" style="font-size:18px;font-weight:700;color:var(--accent)">Rp 0</span>
+        </div>
+        <input type="hidden" name="total_bayar" id="man-total-input" value="0">
+      </div>
+
+      {{-- Status --}}
+      <div style="margin-bottom:16px">
+        <label style="display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:5px">Status</label>
+        <select name="status"
+                style="width:100%;border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:8px;padding:8px 12px;font-size:13px;outline:none">
+          <option value="verified">✓✓ Verified — sudah dikonfirmasi</option>
+          <option value="matched">✓ Matched — perlu verifikasi</option>
+          <option value="unmatched">⚠ Unmatched</option>
+        </select>
+      </div>
+
+      <div style="background:var(--bg);border-radius:8px;padding:10px 12px;margin-bottom:16px;font-size:11px;color:var(--muted)">
+        Input manual masuk ke tabel <code>brimolas</code> — terpisah dari data import Excel.
+        Status <strong>Verified</strong> direkomendasikan untuk pembayaran yang sudah pasti valid.
+      </div>
+
+      <div style="display:flex;gap:8px">
+        <button type="submit"
+                style="flex:1;background:var(--accent);color:#fff;border:none;border-radius:8px;padding:11px;font-size:14px;font-weight:600;cursor:pointer">
+          Simpan Pembayaran
+        </button>
+        <button type="button" onclick="closeModal('modal-manual')"
+                style="border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:8px;padding:11px 16px;font-size:13px;cursor:pointer">
+          Batal
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
 {{-- MODAL IMPORT --}}
 <div id="modal-import" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);align-items:center;justify-content:center;z-index:300;padding:16px" onclick="closeModal('modal-import')">
   <div style="background:var(--surface);border-radius:16px;width:100%;max-width:460px" onclick="event.stopPropagation()">
@@ -317,9 +424,54 @@
 @endsection
 @push('scripts')
 <script>
-function openModal(id)  { document.getElementById(id).style.display='flex'; document.body.style.overflow='hidden'; }
+function openModal(id)  {
+  document.getElementById(id).style.display='flex';
+  document.body.style.overflow='hidden';
+  if (id === 'modal-manual') loadHargaReferensi();
+}
 function closeModal(id) { document.getElementById(id).style.display='none'; document.body.style.overflow=''; }
-document.addEventListener('keydown', e => { if(e.key==='Escape') ['modal-import','modal-match'].forEach(closeModal); });
+document.addEventListener('keydown', e => { if(e.key==='Escape') ['modal-manual','modal-import','modal-match'].forEach(closeModal); });
+
+function isiNoBriva(sel) {
+  const opt   = sel.options[sel.selectedIndex];
+  const briva = opt.dataset.briva || '';
+  const input = document.getElementById('man-briva');
+  if (briva && !input.value) input.value = briva;
+}
+
+function hitungTotalManual() {
+  const tabung = parseInt(document.getElementById('man-tabung').value) || 0;
+  const harga  = parseInt(document.getElementById('man-harga').value)  || 0;
+  const total  = tabung * harga;
+  document.getElementById('man-total-display').textContent = 'Rp ' + total.toLocaleString('id');
+  document.getElementById('man-total-input').value = total;
+}
+
+// Fetch harga referensi dari API saat modal manual dibuka
+async function loadHargaReferensi() {
+  const src = document.getElementById('man-harga-src');
+  try {
+    const r = await fetch('{{ route("dashboard.agen.akuntansi.harga.api") }}?kategori=jual_pangkalan');
+    const d = await r.json();
+    const inp = document.getElementById('man-harga');
+    if (d.success && d.harga) {
+      inp.value = d.harga;
+      if (src) src.textContent = '← dari referensi: ' + d.label;
+      hitungTotalManual();
+    } else {
+      // Fallback ke tebus_refil
+      const r2 = await fetch('{{ route("dashboard.agen.akuntansi.harga.api") }}?kategori=tebus_refil');
+      const d2 = await r2.json();
+      if (d2.success && d2.harga) {
+        inp.value = d2.harga;
+        if (src) src.textContent = '← tebus refil: ' + d2.label;
+        hitungTotalManual();
+      }
+    }
+  } catch(e) {
+    if (src) src.textContent = '(gagal load harga)';
+  }
+}
 
 function bukaMatch(id, nama) {
   document.getElementById('match-trx-id').value = id;

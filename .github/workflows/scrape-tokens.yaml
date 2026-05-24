@@ -1,0 +1,130 @@
+name: Scrape MyPertamina Tokens
+
+on:
+  # Jadwal otomatis (WIB = UTC+7)
+  schedule:
+    # Setiap hari jam 06:00 WIB (23:00 UTC hari sebelumnya)
+    - cron: '0 23 * * *'
+    # Setiap hari jam 18:00 WIB (11:00 UTC)
+    - cron: '0 11 * * *'
+
+  # Manual trigger
+  workflow_dispatch:
+    inputs:
+      date_from:
+        description: 'Tanggal mulai (YYYY-MM-DD)'
+        required: false
+        default: ''
+      date_to:
+        description: 'Tanggal akhir (YYYY-MM-DD)'
+        required: false
+        default: ''
+      single_email:
+        description: 'Scrape satu akun saja (email) — kosongkan untuk semua'
+        required: false
+        default: ''
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Cache Playwright browsers
+        id: cache-playwright
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('scripts/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      - name: Install dependencies
+        run: |
+          pip install playwright aiohttp
+          
+      - name: Install Playwright browsers (cached)
+        run: |
+          if [ ! -d ~/.cache/ms-playwright ]; then
+            playwright install chromium
+            playwright install-deps chromium
+          else
+            echo "Playwright browsers found in cache"
+            playwright install-deps chromium  # tetap install deps sistem
+          fi
+
+      - name: Create temp directory for screenshots
+        run: mkdir -p /tmp
+
+      - name: Run scraper with retry
+        id: scraper
+        uses: nick-fields/retry@v2
+        with:
+          timeout_minutes: 25
+          max_attempts: 3
+          retry_on: error
+          command: |
+            cd scripts
+            python scrape_for_actions.py
+        env:
+          LARAVEL_API_URL: ${{ secrets.LARAVEL_API_URL }}
+          LARAVEL_API_KEY: ${{ secrets.LARAVEL_API_KEY }}
+          DATE_FROM: ${{ github.event.inputs.date_from }}
+          DATE_TO: ${{ github.event.inputs.date_to }}
+          SINGLE_EMAIL: ${{ github.event.inputs.single_email }}
+          DEBUG_SCREENSHOTS: ${{ secrets.DEBUG_SCREENSHOTS || 'false' }}
+
+      - name: Upload screenshots on failure
+        if: failure() && steps.scraper.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-screenshots
+          path: /tmp/*.png
+          retention-days: 7
+
+      - name: Notify failure to Slack
+        if: failure()
+        run: |
+          if [ -n "${{ secrets.SLACK_WEBHOOK_URL }}" ]; then
+            curl -X POST "${{ secrets.SLACK_WEBHOOK_URL }}" \
+              -H 'Content-Type: application/json' \
+              -d '{
+                "text": "⚠️ MyPertamina Scraper GAGAL",
+                "blocks": [
+                  {
+                    "type": "section",
+                    "text": {
+                      "type": "mrkdwn",
+                      "text": "*🚨 MyPertamina Scraper Failed*"
+                    }
+                  },
+                  {
+                    "type": "section",
+                    "text": {
+                      "type": "mrkdwn",
+                      "text": "Repository: ${{ github.repository }}\nWorkflow: ${{ github.workflow }}\nRun ID: ${{ github.run_id }}"
+                    }
+                  },
+                  {
+                    "type": "section",
+                    "text": {
+                      "type": "mrkdwn",
+                      "text": "View logs: <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|Click here>"
+                    }
+                  }
+                ]
+              }'
+          fi
+
+      - name: Cleanup temp files
+        if: always()
+        run: rm -f /tmp/*.png /tmp/tokens_backup_*.json 2>/dev/null || true

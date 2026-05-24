@@ -48,7 +48,7 @@ class ScrapeTransaksiCommand extends Command
 
         // Ambil token aktif dari database
         $query = PangkalanToken::where('is_active', true)
-            ->where('token_expires_at', '>', now())
+            ->where('token_expires_at', '>', now()->utc())
             ->whereNotNull('token');
 
         if ($pangId) {
@@ -237,7 +237,10 @@ class ScrapeTransaksiCommand extends Command
                     'name'               => $c['name']            ?? null,
                     'categories'         => $c['categories']      ?? null,
                     'total'              => $c['total']           ?? 0,
-                    'created_at'         => $c['createdAt']       ?? null,
+                    'created_at'         => $c['createdAt']       ?? now(),
+                    'transaction_date'   => $c['createdAt']
+                                           ? \Carbon\Carbon::parse($c['createdAt'])->toDateString()
+                                           : now()->toDateString(),
                     'updated_at'         => now(),
                 ], ['customer_report_id'], ['name','total','updated_at']);
 

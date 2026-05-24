@@ -449,4 +449,30 @@ class BrimolaController extends Controller
         fclose($handle);
         return $rows;
     }
+    
+    public function store(Request $request)
+    {
+        $request->validate([
+            'pangkalan_id'   => 'required|exists:pangkalans,id',
+            'tanggal_bayar'  => 'required|date',
+            'jumlah_tabung'  => 'required|integer|min:1',
+            'harga_per_tabung' => 'nullable|integer|min:0',
+            'total_bayar'    => 'nullable|integer|min:0',
+            'no_briva'       => 'nullable|string|max:20',
+            'status'         => 'required|in:verified,matched,unmatched',
+        ]);
+    
+        \DB::table('brimolas')->insert([
+            'pangkalan_id' => $request->pangkalan_id,
+            'tanggal_bayar'=> $request->tanggal_bayar,
+            'qty_bayar'    => $request->jumlah_tabung,
+            'no_briva'     => $request->no_briva,
+            'jumlah_bayar' => $request->total_bayar ?? 0,
+            'created_by'   => auth()->id(),
+            'created_at'   => now(),
+            'updated_at'   => now(),
+        ]);
+    
+        return back()->with('success', 'Pembayaran manual berhasil disimpan.');
+    }
 }

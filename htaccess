@@ -1,0 +1,10 @@
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Jika request ke file/folder yang ada, serve langsung
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+
+    # Semua request diteruskan ke public/index.php
+    RewriteRule ^(.*)$ public/$1 [L]
+</IfModule>

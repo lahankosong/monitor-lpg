@@ -1,0 +1,11 @@
+[22-May-2026 21:06:41 Asia/Jakarta] PHP Fatal error:  Uncaught Error: Call to undefined function shell_exec() in /home/parr4187/public_html/monitor-lpg/public/clear.php:3
+Stack trace:
+#0 {main}
+  thrown in /home/parr4187/public_html/monitor-lpg/public/clear.php on line 3
+[22-May-2026 21:06:48 Asia/Jakarta] PHP Fatal error:  Uncaught Error: Call to undefined function shell_exec() in /home/parr4187/public_html/monitor-lpg/public/clear.php:3
+Stack trace:
+#0 {main}
+  thrown in /home/parr4187/public_html/monitor-lpg/public/clear.php on line 3
+[23-May-2026 11:49:04 Asia/Jakarta] PHP Fatal error:  Cannot use App\Http\Controllers\DashboardController as DashboardController because the name is already in use in /home/parr4187/public_html/monitor-lpg/routes/web.php on line 5
+[23-May-2026 13:07:35 Asia/Jakarta] PHP Fatal error:  Cannot use App\Http\Controllers\DashboardController as DashboardController because the name is already in use in /home/parr4187/public_html/monitor-lpg/routes/web.php on line 5
+[23-May-2026 13:08:01 Asia/Jakarta] PHP Fatal error:  Cannot use App\Http\Controllers\DashboardController as DashboardController because the name is already in use in /home/parr4187/public_html/monitor-lpg/routes/web.php on line 5

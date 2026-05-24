@@ -373,73 +373,84 @@ async def login_one(email: str, pin: str, label: str = "", retry: int = 0) -> di
     return result
 
 
-async def send_to_laravel(tokens: list, api_url: str, api_key: str, date_from: str, date_to: str):
-    """Kirim batch token ke Laravel API dengan retry"""
-    log(f"Mengirim {len(tokens)} token ke Laravel...")
-
-    payload = {
-        "tokens": tokens,
-        "scrape_after": True,
-        "date_from": date_from,
-        "date_to": date_to,
-        "source": "github_actions",
-        "timestamp": datetime.now().isoformat()
-    }
-
+async def send_one_token(session, token_data: dict, api_url: str, api_key: str,
+                         date_from: str, date_to: str) -> bool:
+    """Kirim satu token ke Laravel — lebih reliable untuk shared hosting"""
     headers = {
         "Content-Type": "application/json",
         "X-API-Key": api_key,
         "User-Agent": "MyPertamina-Scraper/1.0",
     }
-
-    max_retries = 3
-    
-    for attempt in range(max_retries):
-        async with aiohttp.ClientSession() as session:
-            try:
-                # Healthcheck dulu
-                try:
-                    async with session.get(
-                        f"{api_url}/api/health",
-                        headers={"X-API-Key": api_key},
-                        timeout=aiohttp.ClientTimeout(total=5)
-                    ) as health_resp:
-                        if health_resp.status != 200:
-                            log(f"  API health check failed: {health_resp.status}")
-                except:
-                    log(f"  API health check timeout/skip")
-                
-                async with session.post(
-                    f"{api_url}/api/github-actions/tokens",
-                    json=payload,
-                    headers=headers,
-                    timeout=aiohttp.ClientTimeout(total=300)
-                ) as resp:
-                    result = await resp.json()
-                    if resp.status == 200:
-                        log(f"✓ Laravel response: {result.get('message', 'OK')}")
-                        if result.get('tokens_saved') is not None:
-                            log(f"  Tokens saved: {result['tokens_saved']}")
-                        return result
-                    else:
-                        log(f"✗ Laravel error ({resp.status}): {result}")
-                        if attempt < max_retries - 1:
-                            log(f"  Retrying... ({attempt + 1}/{max_retries})")
-                            await asyncio.sleep(5)
-                        else:
-                            return None
-            except asyncio.TimeoutError:
-                log(f"✗ Timeout sending to Laravel, attempt {attempt + 1}")
-                if attempt < max_retries - 1:
-                    await asyncio.sleep(5)
-            except Exception as e:
-                log(f"✗ Error mengirim ke Laravel: {e}")
-                if attempt < max_retries - 1:
-                    await asyncio.sleep(5)
-    
-    return None
+    payload = {
+        "tokens":       [token_data],
+        "date_from":    date_from,
+        "date_to":      date_to,
+        "source":       "github_actions",
+    }
+    try:
+        async with session.post(
+            f"{api_url}/api/github-actions/tokens",
+            json=payload,
+            headers=headers,
+            timeout=aiohttp.ClientTimeout(total=30)
+        ) as resp:
+            if resp.status == 200:
+                result = await resp.json()
+                return result.get("success", False)
+            else:
+                body = await resp.text()
+                log(f"  ✗ HTTP {resp.status}: {body[:100]}")
+                return False
+    except Exception as e:
+        log(f"  ✗ Error: {e}")
+        return False
 
 
+async def send_to_laravel(tokens: list, api_url: str, api_key: str, date_from: str, date_to: str):
+    """Kirim token ke Laravel satu per satu (avoid 500 payload too large)"""
+    log(f"Mengirim {len(tokens)} token ke Laravel...")
+
+    headers = {"X-API-Key": api_key}
+
+    # Health check dulu
+    try:
+        async with aiohttp.ClientSession() as s:
+            async with s.get(f"{api_url}/api/health", headers=headers,
+                             timeout=aiohttp.ClientTimeout(total=5)) as r:
+                if r.status == 200:
+                    log("  ✓ API health check OK")
+                else:
+                    log(f"  ⚠ API health check: {r.status}")
+    except Exception as e:
+        log(f"  ⚠ Health check skip: {e}")
+
+    saved  = 0
+    failed = 0
+
+    async with aiohttp.ClientSession() as session:
+        for i, token_data in enumerate(tokens, 1):
+            label = token_data.get("store_name") or token_data.get("email", "?")
+            log(f"  [{i}/{len(tokens)}] Kirim token: {label}...")
+
+            ok = False
+            for attempt in range(3):  # retry 3x per token
+                ok = await send_one_token(session, token_data, api_url, api_key, date_from, date_to)
+                if ok:
+                    break
+                if attempt < 2:
+                    await asyncio.sleep(3)
+
+            if ok:
+                saved += 1
+                log(f"    ✓ Tersimpan")
+            else:
+                failed += 1
+                log(f"    ✗ Gagal setelah 3x retry")
+
+            await asyncio.sleep(0.5)  # jeda kecil antar request
+
+    log(f"Kirim selesai: {saved} berhasil, {failed} gagal")
+    return {"success": True, "saved": saved, "failed": failed}
 async def main():
     log("=" * 60)
     log("MyPertamina Batch Scraper untuk GitHub Actions")
@@ -529,6 +540,17 @@ async def main():
     if not accounts:
         log("ERROR: Tidak bisa fetch accounts dari API maupun env/file!")
         sys.exit(1)
+
+    # Filter single email jika diminta
+    single_email = os.environ.get("SINGLE_EMAIL", "").strip().lower()
+    if single_email:
+        accounts_filtered = [a for a in accounts if a.get("email","").lower() == single_email]
+        if accounts_filtered:
+            log(f"Mode single: hanya scrape {single_email}")
+            accounts = accounts_filtered
+        else:
+            log(f"WARN: Email '{single_email}' tidak ditemukan di daftar akun ({len(accounts)} akun)")
+            log(f"Daftar email: {[a.get('email') for a in accounts[:5]]}...")
 
     log(f"Memproses {len(accounts)} akun...")
     log("-" * 60)

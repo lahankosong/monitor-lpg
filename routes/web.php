@@ -54,9 +54,13 @@ Route::middleware(['auth'])->prefix('dashboard/notifikasi')->name('dashboard.not
 
 Route::prefix('dashboard')->name('dashboard.')->middleware(['auth'])->group(function () {
 
-    // ── MAP Dashboard ─────────────────────────────────────────────
-    Route::get('/', [MapDashboardController::class, 'index'])->name('index');
+    // ── Ikhtisar (Landing Page Dashboard) ────────────────────────
+    Route::get('/', [\App\Http\Controllers\DashboardIkhtisarController::class, 'index'])->name('index');
     Route::get('/export', [ExportController::class, 'export'])->name('export');
+
+    // ── MAP Dashboard (dipindah ke sub-path) ──────────────────────
+    Route::get('/map', [MapDashboardController::class, 'index'])->name('map.index');
+    Route::get('/map/export', [ExportController::class, 'export'])->name('map.export');
 
     // ── Monitor NIK ───────────────────────────────────────────────
     Route::get('/nik',        [DashboardController::class, 'nikList'])->name('nik.list');
@@ -165,7 +169,8 @@ Route::prefix('dashboard')->name('dashboard.')->middleware(['auth'])->group(func
             Route::post('/match',  [BrimolaController::class, 'match'])->name('match');
             Route::post('/verify', [BrimolaController::class, 'verify'])->name('verify');
             Route::get('/export',  [BrimolaController::class, 'export'])->name('export');
-
+            Route::post('/store', [BrimolaController::class, 'store'])->name('store');
+            
             // Audit alokasi FIFO
             Route::prefix('audit')->name('audit.')->group(function () {
                 Route::get('/',                                [AuditBrimolaController::class, 'index'])->name('index');
@@ -189,7 +194,7 @@ Route::prefix('dashboard')->name('dashboard.')->middleware(['auth'])->group(func
         });
 
         // Dashboard Akuntansi
-        Route::get('/dashboard', [AkuntansiController::class, 'dashboard'])->name('dashboard');
+        Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
 
         // Buku Besar & Laporan Keuangan
         Route::prefix('buku-besar')->name('buku-besar.')->group(function () {

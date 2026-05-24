@@ -426,8 +426,14 @@ async function scrapeOne(id, label) {
     if (data.success) {
       btn.textContent = '✓';
       btn.classList.replace('bg-blue-600','bg-green-600');
-      showToast(`✓ ${label}: ${data.saved} transaksi`, 'green');
-      updateRow(id, data.saved);
+      if (data.mode === 'github_actions') {
+        // Trigger GitHub Actions — transaksi belum ada, tunggu ~2 menit
+        showToast(`🚀 ${label}: GitHub Actions dipicu. Transaksi masuk ~2 menit.`, 'blue');
+        btn.textContent = '🚀';
+      } else {
+        showToast(`✓ ${label}: ${data.saved ?? 0} transaksi`, 'green');
+        updateRow(id, data.saved ?? 0);
+      }
     } else {
       btn.textContent = '✗';
       btn.classList.replace('bg-blue-600','bg-red-500');

@@ -114,44 +114,111 @@ async def login_one(email: str, pin: str, label: str = "", retry: int = 0) -> di
                     log(f"  [{label}] Retry navigation ({attempt + 1}): {str(e)[:50]}")
                     await asyncio.sleep(2)
             
-            # Tunggu element login muncul
+            # Log URL dan title
+            log(f"  [{label}] URL  : {page.url}")
             try:
-                await page.wait_for_selector('input[type="text"], input[type="email"]', timeout=10000)
-            except PlaywrightTimeoutError:
-                # Screenshot untuk debugging
+                log(f"  [{label}] Title: {await page.title()}")
+            except:
+                pass
+
+            # Tunggu networkidle max 5s
+            try:
+                await page.wait_for_load_state("networkidle", timeout=5000)
+            except:
+                pass
+            await asyncio.sleep(0.5)
+
+            # Tunggu input visible (max 20s, cek tiap 1s)
+            input_ready = False
+            for _w in range(20):
+                try:
+                    count = await page.evaluate("""() =>
+                        Array.from(document.querySelectorAll('input'))
+                            .filter(el => el.offsetParent !== null).length
+                    """)
+                    if count > 0:
+                        input_ready = True
+                        break
+                except:
+                    pass
+                await asyncio.sleep(1)
+
+            if not input_ready:
                 screenshot_path = f"/tmp/login_error_{email.replace('@', '_')}.png"
                 await page.screenshot(path=screenshot_path)
-                log(f"  [{label}] Screenshot saved: {screenshot_path}")
-                raise Exception("Login form not found")
-            
-            await asyncio.sleep(2)
+                log(f"  [{label}] Screenshot: {screenshot_path}")
+                raise Exception("Login form not found after 20s")
 
-            # Gerak mouse secara natural
+            # Gerak mouse natural
             await page.mouse.move(640, 400)
-            await asyncio.sleep(0.5)
-
-            # Isi email dengan delay antar karakter
-            email_input = await page.wait_for_selector('input[type="text"], input[type="email"]', timeout=5000)
-            await email_input.click()
             await asyncio.sleep(0.3)
-            await email_input.fill(email)
-            await asyncio.sleep(0.5)
 
-            # Isi PIN
-            pin_input = await page.wait_for_selector('input[type="password"]', timeout=5000)
-            await pin_input.click()
+            # Isi email via JS (React-safe)
+            log(f"  [{label}] Input email...")
+            filled = await page.evaluate("""(val) => {
+                const sels = [
+                    'input[type="email"]','input[name="email"]',
+                    'input[placeholder*="Ponsel"]','input[placeholder*="Email"]',
+                    'input[placeholder*="email"]','input[type="text"]','input[type="tel"]',
+                ];
+                for (const sel of sels) {
+                    const el = document.querySelector(sel);
+                    if (el && el.offsetParent !== null) {
+                        const setter = Object.getOwnPropertyDescriptor(
+                            window.HTMLInputElement.prototype, 'value').set;
+                        setter.call(el, val);
+                        el.dispatchEvent(new Event('input',  {bubbles:true}));
+                        el.dispatchEvent(new Event('change', {bubbles:true}));
+                        el.focus();
+                        return sel;
+                    }
+                }
+                return null;
+            }""", email)
+            if not filled:
+                raise Exception("Email input not found")
             await asyncio.sleep(0.3)
-            await pin_input.fill(pin)
-            await asyncio.sleep(0.5)
 
-            # Klik tombol MASUK
-            login_btn = await page.wait_for_selector('button:has-text("MASUK"), button:has-text("Login")', timeout=5000)
-            
-            # Screenshot sebelum klik
+            # Isi PIN via JS
+            log(f"  [{label}] Input PIN...")
+            await page.evaluate("""(val) => {
+                const el = document.querySelector('input[type="password"]');
+                if (el) {
+                    const setter = Object.getOwnPropertyDescriptor(
+                        window.HTMLInputElement.prototype, 'value').set;
+                    setter.call(el, val);
+                    el.dispatchEvent(new Event('input',  {bubbles:true}));
+                    el.dispatchEvent(new Event('change', {bubbles:true}));
+                    el.focus();
+                }
+            }""", pin)
+            await asyncio.sleep(0.3)
+
+            # Klik tombol login via JS
+            log(f"  [{label}] Click login...")
+            btn = await page.evaluate("""() => {
+                const kw = ['MASUK','Masuk','Login','LOGIN','Lanjut'];
+                for (const b of document.querySelectorAll('button')) {
+                    if (kw.some(k => b.textContent.includes(k)) && b.offsetParent !== null) {
+                        b.click(); return b.textContent.trim();
+                    }
+                }
+                const sub = document.querySelector('button[type="submit"]');
+                if (sub && sub.offsetParent !== null) { sub.click(); return 'submit'; }
+                const all = Array.from(document.querySelectorAll('button'))
+                    .filter(b => b.offsetParent !== null);
+                if (all.length) { all[all.length-1].click(); return all[all.length-1].textContent.trim(); }
+                return null;
+            }""")
+            if btn:
+                log(f"  [{label}] Tombol: '{btn}'")
+            else:
+                await page.keyboard.press("Enter")
+                log(f"  [{label}] Fallback: Enter")
+
+            # Screenshot sebelum wait token
             if os.environ.get("DEBUG_SCREENSHOTS"):
-                await page.screenshot(path=f"/tmp/before_click_{email.replace('@', '_')}.png")
-            
-            await login_btn.click()
+                await page.screenshot(path=f"/tmp/before_wait_{email.replace('@', '_')}.png")
 
             # Tunggu token dengan wait_for_function
             try:

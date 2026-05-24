@@ -667,7 +667,6 @@ class DistribusiController extends Controller
         ]);
         return back()->with('success', 'Transaksi antar agen ditandai selesai.');
     }
-}
 
     // ─────────────────────────────────────────────────────────────
     // SIMPAN REALISASI FLEKSIBEL
@@ -836,3 +835,4 @@ class DistribusiController extends Controller
         $stok->update(['sisa_akhir' => 0, 'status' => 'selesai']);
         return back()->with('success', "{$stok->sisa_akhir} tabung isi diturunkan ke gudang.");
     }
+}
