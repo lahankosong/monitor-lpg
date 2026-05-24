@@ -205,3 +205,4 @@ php artisan schedule:run   # manual test
 # atau tambahkan cron:
 * * * * * cd /path/to/project && php artisan schedule:run >> /dev/null 2>&1
 ```
+# rawarun
