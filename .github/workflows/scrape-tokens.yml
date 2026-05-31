@@ -4,9 +4,9 @@ on:
   # Jadwal otomatis (WIB = UTC+7)
   schedule:
     # Setiap hari jam 06:00 WIB (23:00 UTC hari sebelumnya)
-    - cron: '0 23 * * *'
+    - cron: '0 ** * * *'
     # Setiap hari jam 18:00 WIB (11:00 UTC)
-    - cron: '0 11 * * *'
+    - cron: '0 ** * * *'
 
   # Manual trigger
   workflow_dispatch:
